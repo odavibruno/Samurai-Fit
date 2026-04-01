@@ -159,8 +159,7 @@ const App: React.FC = () => {
 
   const handleOpenScheduleForStudent = (studentId?: string) => {
       setScheduleTargetStudentId(studentId || null);
-      setIsScheduleOpen(true);
-      setIsManagingStudents(false); 
+      handleTabChange(NavigationTab.SCHEDULE);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -291,7 +290,7 @@ const App: React.FC = () => {
     setIsMessagingClan(false);
   };
 
-  const isMestre = !!(user.isLider || ['w.samurai.fitness@gmail.com'].includes(user.email.toLowerCase()));
+  const isMestre = user.role === 'professor' || !!(user.isLider || ['w.samurai.fitness@gmail.com'].includes(user.email.toLowerCase()));
 
   // Render Content (Same logic, simplified variables)
   const renderContent = () => {
@@ -352,19 +351,21 @@ const App: React.FC = () => {
                 </div>
 
                 {/* VISUALIZAÇÃO DO NÍVEL (SOMENTE LEITURA) */}
-                <div className={`p-5 rounded-2xl border ${theme === 'Noite' ? 'bg-red-900/10 border-red-900/30' : 'bg-red-50 border-red-100'} flex items-center justify-between`}>
-                    <div>
-                        <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1 flex items-center gap-1">
-                            <Shield size={12} className="text-red-900" /> Nível Atual
-                        </p>
-                        <h3 className="text-xl font-black uppercase text-red-900 italic">{editingUser.level}</h3>
+                {user.role !== 'professor' && (
+                    <div className={`p-5 rounded-2xl border ${theme === 'Noite' ? 'bg-red-900/10 border-red-900/30' : 'bg-red-50 border-red-100'} flex items-center justify-between`}>
+                        <div>
+                            <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1 flex items-center gap-1">
+                                <Shield size={12} className="text-red-900" /> Nível Atual
+                            </p>
+                            <h3 className="text-xl font-black uppercase text-red-900 italic">{editingUser.level}</h3>
+                        </div>
+                        <div className="text-[9px] font-bold uppercase text-zinc-500 text-right opacity-60">
+                            <Lock size={12} className="inline mb-1"/>
+                            <br/>
+                            Definido pelo Mestre
+                        </div>
                     </div>
-                    <div className="text-[9px] font-bold uppercase text-zinc-500 text-right opacity-60">
-                        <Lock size={12} className="inline mb-1"/>
-                        <br/>
-                        Definido pelo Mestre
-                    </div>
-                </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
@@ -393,29 +394,31 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* BIOGRAFIA (EDITÁVEL PELO ALUNO) */}
+                {/* BIOGRAFIA / ESPECIALIDADE */}
                 <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-zinc-500 ml-1 flex items-center gap-2">
-                        <ScrollText size={12}/> Minha Biografia (História)
+                        <ScrollText size={12}/> {user.role === 'professor' ? 'Especialidade / Biografia' : 'Minha Biografia (História)'}
                     </label>
                     <textarea 
                         className={`w-full h-32 ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} resize-none focus:outline-none focus:border-red-900 transition-all`}
-                        placeholder="Escreva sua história, lesões passadas ou motivações..."
+                        placeholder={user.role === 'professor' ? 'Escreva sua especialidade e histórico como mestre...' : 'Escreva sua história, lesões passadas ou motivações...'}
                         value={editingUser.biography || ''}
                         onChange={e => setEditingUser({...editingUser, biography: e.target.value})}
                     />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                   <div className="space-y-1">
-                     <label className="text-[10px] font-black uppercase text-zinc-500 ml-1">Peso (kg)</label>
-                     <input type="number" className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor}`} value={editingUser.weight} onChange={e => setEditingUser({...editingUser, weight: Number(e.target.value)})} />
-                   </div>
-                   <div className="space-y-1">
-                     <label className="text-[10px] font-black uppercase text-zinc-500 ml-1">Altura (cm)</label>
-                     <input type="number" className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor}`} value={editingUser.height} onChange={e => setEditingUser({...editingUser, height: Number(e.target.value)})} />
-                   </div>
-                </div>
+                {user.role !== 'professor' && (
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-black uppercase text-zinc-500 ml-1">Peso (kg)</label>
+                         <input type="number" className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor}`} value={editingUser.weight} onChange={e => setEditingUser({...editingUser, weight: Number(e.target.value)})} />
+                       </div>
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-black uppercase text-zinc-500 ml-1">Altura (cm)</label>
+                         <input type="number" className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor}`} value={editingUser.height} onChange={e => setEditingUser({...editingUser, height: Number(e.target.value)})} />
+                       </div>
+                    </div>
+                )}
 
                 <div className={`p-4 rounded-2xl border ${theme === 'Noite' ? 'border-zinc-800 bg-zinc-900/50' : 'border-zinc-200 bg-zinc-50'}`}>
                     <button 
@@ -504,6 +507,29 @@ const App: React.FC = () => {
     }
 
     switch (activeTab) {
+      case NavigationTab.STUDENTS:
+        return (
+          <StudentManager 
+              onClose={() => {}} 
+              students={clanMembers}
+              onUpdateStudent={handleUpdateStudentFromManager} 
+              onCreateStudent={createStudent}
+              onDeleteStudent={handleDeleteStudent}
+              theme={theme} 
+              onOpenSchedule={handleOpenScheduleForStudent} 
+          />
+        );
+      case NavigationTab.SCHEDULE:
+        return (
+          <InstructorSchedule 
+              onClose={() => {}}
+              user={user}
+              onUpdateUser={setUser}
+              students={clanMembers}
+              theme={theme}
+              initialStudentId={scheduleTargetStudentId} 
+          />
+        );
       case NavigationTab.DOJO: return <Dashboard user={user} onUpdateUser={setUser} theme={theme} activeSession={activeSession} onResumeSession={() => setActiveTab(NavigationTab.WORKOUTS)} />;
       case NavigationTab.TECHNIQUES: return <BattleTechniques isLider={isMestre} theme={theme} />;
       case NavigationTab.WORKOUTS: 
@@ -542,180 +568,157 @@ const App: React.FC = () => {
             <>
                 {nextClassAlert && (
                     <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-top-4">
-                        <div className="bg-red-900 text-white px-6 py-3 rounded-full shadow-[0_0_20px_rgba(220,38,38,0.5)] border border-red-500 flex items-center gap-3">
-                            <Clock size={20} className="animate-pulse" />
-                            <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Atenção Mestre</p>
-                                <p className="text-sm font-bold uppercase italic">Aula com {nextClassAlert.studentName} às {nextClassAlert.time}</p>
-                            </div>
-                        </div>
-                    </div>
-                )}
-                
-                <Layout 
-                    activeTab={activeTab} setActiveTab={handleTabChange} 
-                    user={user} 
-                    onUpdateUser={setUser}
-                    onLogout={handleLogout}
-                    onEditProfile={handleStartEditProfile}
-                    onManageStudents={() => setIsManagingStudents(true)}
-                    onContactMaster={() => setIsContactingMaster(true)}
-                    onOpenMessenger={() => setIsMessagingClan(true)}
-                    onDeleteMessage={deleteMessage}
-                    isLider={isMestre}
-                    theme={theme} setTheme={setTheme}
-                    audioSettings={audioSettings} 
-                    setAudioSettings={setAudioSettings}
-                    sageAvatar={sageAvatar}
-                    customIcons={customIcons}
-                    onUpdateIcon={handleUpdateIcon}
-                    onResetIcon={handleResetIcon}
-                    onOpenSchedule={() => handleOpenScheduleForStudent()}
-                    onOpenMasterTracking={() => setIsMasterTrackingOpen(true)}
-                    onOpenQuestionnaire={() => setIsQuestionnaireOpen(true)}
-                    onOpenCalendar={() => setIsCalendarOpen(true)}
-                    soundConfig={soundConfig}
-                    onUpdateSoundConfig={handleUpdateSoundConfig}
-                >
-                    {renderContent()}
-                </Layout>
-                
-                {isManagingStudents && (
-                    <StudentManager 
-                    onClose={() => setIsManagingStudents(false)} 
-                    students={clanMembers}
-                    onUpdateStudent={handleUpdateStudentFromManager} 
-                    onCreateStudent={createStudent}
-                    onDeleteStudent={handleDeleteStudent}
-                    theme={theme} 
-                    onOpenSchedule={handleOpenScheduleForStudent} 
-                    />
-                )}
-
-                {isScheduleOpen && (
-                    <InstructorSchedule 
-                        onClose={() => setIsScheduleOpen(false)}
-                        user={user}
-                        onUpdateUser={setUser}
-                        students={clanMembers}
-                        theme={theme}
-                        initialStudentId={scheduleTargetStudentId} 
-                    />
-                )}
-
-                {isMasterTrackingOpen && (
-                    <MasterTrackingLog 
-                        onClose={() => setIsMasterTrackingOpen(false)}
-                        students={clanMembers}
-                        theme={theme}
-                    />
-                )}
-
-                {isQuestionnaireOpen && (
-                    <QuestionnaireModal 
-                        onClose={() => setIsQuestionnaireOpen(false)}
-                        onSave={handleSaveQuestionnaire}
-                        theme={theme}
-                    />
-                )}
-
-                {isCalendarOpen && (
-                    <CalendarModal 
-                        onClose={() => setIsCalendarOpen(false)}
-                        user={user}
-                        onUpdateLog={updateTrainingLog}
-                        onDeleteLog={deleteTrainingLog}
-                        theme={theme}
-                    />
-                )}
-                
-                {isContactingMaster && (
-                    <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-md p-6 flex items-center justify-center animate-in fade-in zoom-in-95">
-                    <div className={`${theme === 'Noite' ? 'bg-[#1A1A1A]' : 'bg-white'} w-full max-w-md p-8 rounded-[3rem] shadow-2xl border ${theme === 'Noite' ? 'border-white/5' : 'border-zinc-200'}`}>
-                        <div className="flex justify-between items-center mb-6">
-                        <h3 className={`text-xl font-black italic uppercase ${theme === 'Dia' ? 'text-zinc-900' : 'text-white'}`}>Falar com o Mestre</h3>
-                        <button onClick={() => setIsContactingMaster(false)} className="text-zinc-500 hover:text-red-900 transition-colors"><X size={24} /></button>
-                        </div>
-                        <textarea 
-                        value={masterMessage} onChange={e => setMasterMessage(e.target.value)}
-                        placeholder="Escreva sua dúvida ou relato para o Mestre..."
-                        className={`w-full h-40 ${theme === 'Noite' ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-zinc-200'} border rounded-3xl p-5 text-sm font-bold focus:outline-none focus:border-red-900 transition-all resize-none`}
-                        />
-                        <button 
-                        onClick={handleSendMessageToMaster}
-                        className="w-full mt-6 bg-red-900 text-white font-black py-4 rounded-3xl shadow-xl flex items-center justify-center gap-2 italic uppercase active:scale-95 transition-all"
-                        >
-                        <Send size={18} /> Enviar ao Dojo
-                        </button>
-                    </div>
-                    </div>
-                )}
-
-                {isMessagingClan && (
-                    <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-md p-6 flex items-center justify-center animate-in fade-in zoom-in-95 overflow-y-auto">
-                    <div className={`${theme === 'Noite' ? 'bg-[#1A1A1A]' : 'bg-white'} w-full max-w-lg p-8 rounded-[3rem] shadow-2xl border ${theme === 'Noite' ? 'border-red-900/20' : 'border-zinc-200'}`}>
-                        <div className="flex justify-between items-center mb-6">
-                        <div className="flex items-center gap-3">
-                            <Users size={24} className="text-red-900" />
-                            <h3 className={`text-xl font-black italic uppercase ${theme === 'Dia' ? 'text-zinc-900' : 'text-white'}`}>Comando do Clã</h3>
-                        </div>
-                        <button onClick={() => setIsMessagingClan(false)} className="text-zinc-500 hover:text-red-900 transition-colors"><X size={24} /></button>
-                        </div>
-
-                        <div className="space-y-4">
-                        <div className="space-y-1">
-                            <label className="text-[10px] font-black uppercase text-zinc-500 italic ml-1">Assunto do Pergaminho</label>
-                            <input 
-                            value={broadcastTitle} onChange={e => setBroadcastTitle(e.target.value)}
-                            placeholder="Ex: Treino de Sábado / Novo Protocolo"
-                            className={`w-full p-4 rounded-2xl border ${theme === 'Noite' ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-zinc-200'} text-sm font-bold focus:outline-none focus:border-red-900 transition-all`}
-                            />
-                        </div>
-                        
-                        <div className="space-y-1">
-                            <label className="text-[10px] font-black uppercase text-zinc-500 italic ml-1">Conteúdo da Mensagem</label>
-                            <textarea 
-                            value={broadcastContent} onChange={e => setBroadcastContent(e.target.value)}
-                            placeholder="Escreva a ordem para os membros..."
-                            className={`w-full h-32 p-4 rounded-2xl border ${theme === 'Noite' ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-zinc-200'} text-sm font-bold focus:outline-none focus:border-red-900 transition-all resize-none`}
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <div className="flex justify-between items-end">
-                            <label className="text-[10px] font-black uppercase text-zinc-500 italic ml-1">Selecionar Membros</label>
-                            <button onClick={toggleAllRecipients} className="text-[9px] font-black uppercase text-red-900 hover:underline">
-                                {selectedRecipients.length === clanMembers.length ? 'Desmarcar Todos' : 'Selecionar Todos'}
-                            </button>
-                            </div>
-                            
-                            <div className={`max-h-40 overflow-y-auto p-2 rounded-2xl border ${theme === 'Noite' ? 'bg-black/20 border-white/5' : 'bg-slate-50 border-zinc-200'} custom-scrollbar`}>
-                            {clanMembers.map(member => (
-                                <button 
-                                key={member.id}
-                                onClick={() => toggleRecipient(member.id)}
-                                className={`w-full flex items-center justify-between p-3 rounded-xl mb-1 transition-all ${selectedRecipients.includes(member.id) ? 'bg-red-900/10' : 'hover:bg-white/5'}`}
-                                >
-                                <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center text-xs text-white">{member.name.charAt(0)}</div>
-                                    <span className={`text-xs font-bold uppercase ${theme === 'Dia' ? 'text-zinc-800' : 'text-zinc-300'}`}>{member.name}</span>
+                                <div className="bg-red-900 text-white px-6 py-3 rounded-full shadow-[0_0_20px_rgba(220,38,38,0.5)] border border-red-500 flex items-center gap-3">
+                                    <Clock size={20} className="animate-pulse" />
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Atenção Mestre</p>
+                                        <p className="text-sm font-bold uppercase italic">Aula com {nextClassAlert.studentName} às {nextClassAlert.time}</p>
+                                    </div>
                                 </div>
-                                {selectedRecipients.includes(member.id) ? <CheckSquare size={16} className="text-red-900" /> : <Square size={16} className="text-zinc-500" />}
-                                </button>
-                            ))}
                             </div>
-                        </div>
-
-                        <button 
-                            onClick={handleBroadcastMessage}
-                            className="w-full mt-4 bg-red-900 text-white font-black py-4 rounded-3xl shadow-xl flex items-center justify-center gap-2 italic uppercase active:scale-95 transition-all"
+                        )}
+                        
+                        <Layout 
+                            activeTab={activeTab} setActiveTab={handleTabChange} 
+                            user={user} 
+                            onUpdateUser={setUser}
+                            onLogout={handleLogout}
+                            onEditProfile={handleStartEditProfile}
+                            onManageStudents={() => handleTabChange(NavigationTab.STUDENTS)}
+                            onContactMaster={() => setIsContactingMaster(true)}
+                            onOpenMessenger={() => setIsMessagingClan(true)}
+                            onDeleteMessage={deleteMessage}
+                            isLider={isMestre}
+                            theme={theme} setTheme={setTheme}
+                            audioSettings={audioSettings} 
+                            setAudioSettings={setAudioSettings}
+                            sageAvatar={sageAvatar}
+                            customIcons={customIcons}
+                            onUpdateIcon={handleUpdateIcon}
+                            onResetIcon={handleResetIcon}
+                            onOpenSchedule={() => handleTabChange(NavigationTab.SCHEDULE)}
+                            onOpenMasterTracking={() => setIsMasterTrackingOpen(true)}
+                            onOpenQuestionnaire={() => setIsQuestionnaireOpen(true)}
+                            onOpenCalendar={() => setIsCalendarOpen(true)}
+                            soundConfig={soundConfig}
+                            onUpdateSoundConfig={handleUpdateSoundConfig}
                         >
-                            <Send size={18} /> Disparar Ordem
-                        </button>
-                        </div>
-                    </div>
-                    </div>
-                )}
+                            {renderContent()}
+                        </Layout>
+                        
+                        {isMasterTrackingOpen && (
+                            <MasterTrackingLog 
+                                onClose={() => setIsMasterTrackingOpen(false)}
+                                students={clanMembers}
+                                theme={theme}
+                            />
+                        )}
+
+                        {isQuestionnaireOpen && (
+                            <QuestionnaireModal 
+                                onClose={() => setIsQuestionnaireOpen(false)}
+                                onSave={handleSaveQuestionnaire}
+                                theme={theme}
+                            />
+                        )}
+
+                        {isCalendarOpen && (
+                            <CalendarModal 
+                                onClose={() => setIsCalendarOpen(false)}
+                                user={user}
+                                onUpdateLog={updateTrainingLog}
+                                onDeleteLog={deleteTrainingLog}
+                                theme={theme}
+                            />
+                        )}
+                        
+                        {isContactingMaster && (
+                            <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-md p-6 flex items-center justify-center animate-in fade-in zoom-in-95">
+                            <div className={`${theme === 'Noite' ? 'bg-[#1A1A1A]' : 'bg-white'} w-full max-w-md p-8 rounded-[3rem] shadow-2xl border ${theme === 'Noite' ? 'border-white/5' : 'border-zinc-200'}`}>
+                                <div className="flex justify-between items-center mb-6">
+                                <h3 className={`text-xl font-black italic uppercase ${theme === 'Dia' ? 'text-zinc-900' : 'text-white'}`}>Falar com o Mestre</h3>
+                                <button onClick={() => setIsContactingMaster(false)} className="text-zinc-500 hover:text-red-900 transition-colors"><X size={24} /></button>
+                                </div>
+                                <textarea 
+                                value={masterMessage} onChange={e => setMasterMessage(e.target.value)}
+                                placeholder="Escreva sua dúvida ou relato para o Mestre..."
+                                className={`w-full h-40 ${theme === 'Noite' ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-zinc-200'} border rounded-3xl p-5 text-sm font-bold focus:outline-none focus:border-red-900 transition-all resize-none`}
+                                />
+                                <button 
+                                onClick={handleSendMessageToMaster}
+                                className="w-full mt-6 bg-red-900 text-white font-black py-4 rounded-3xl shadow-xl flex items-center justify-center gap-2 italic uppercase active:scale-95 transition-all"
+                                >
+                                <Send size={18} /> Enviar ao Dojo
+                                </button>
+                            </div>
+                            </div>
+                        )}
+
+                        {isMessagingClan && (
+                            <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-md p-6 flex items-center justify-center animate-in fade-in zoom-in-95 overflow-y-auto">
+                            <div className={`${theme === 'Noite' ? 'bg-[#1A1A1A]' : 'bg-white'} w-full max-w-lg p-8 rounded-[3rem] shadow-2xl border ${theme === 'Noite' ? 'border-red-900/20' : 'border-zinc-200'}`}>
+                                <div className="flex justify-between items-center mb-6">
+                                <div className="flex items-center gap-3">
+                                    <Users size={24} className="text-red-900" />
+                                    <h3 className={`text-xl font-black italic uppercase ${theme === 'Dia' ? 'text-zinc-900' : 'text-white'}`}>Comando do Clã</h3>
+                                </div>
+                                <button onClick={() => setIsMessagingClan(false)} className="text-zinc-500 hover:text-red-900 transition-colors"><X size={24} /></button>
+                                </div>
+
+                                <div className="space-y-4">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black uppercase text-zinc-500 italic ml-1">Assunto do Pergaminho</label>
+                                    <input 
+                                    value={broadcastTitle} onChange={e => setBroadcastTitle(e.target.value)}
+                                    placeholder="Ex: Treino de Sábado / Novo Protocolo"
+                                    className={`w-full p-4 rounded-2xl border ${theme === 'Noite' ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-zinc-200'} text-sm font-bold focus:outline-none focus:border-red-900 transition-all`}
+                                    />
+                                </div>
+                                
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black uppercase text-zinc-500 italic ml-1">Conteúdo da Mensagem</label>
+                                    <textarea 
+                                    value={broadcastContent} onChange={e => setBroadcastContent(e.target.value)}
+                                    placeholder="Escreva a ordem para os membros..."
+                                    className={`w-full h-32 p-4 rounded-2xl border ${theme === 'Noite' ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-zinc-200'} text-sm font-bold focus:outline-none focus:border-red-900 transition-all resize-none`}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-end">
+                                    <label className="text-[10px] font-black uppercase text-zinc-500 italic ml-1">Selecionar Membros</label>
+                                    <button onClick={toggleAllRecipients} className="text-[9px] font-black uppercase text-red-900 hover:underline">
+                                        {selectedRecipients.length === clanMembers.length ? 'Desmarcar Todos' : 'Selecionar Todos'}
+                                    </button>
+                                    </div>
+                                    
+                                    <div className={`max-h-40 overflow-y-auto p-2 rounded-2xl border ${theme === 'Noite' ? 'bg-black/20 border-white/5' : 'bg-slate-50 border-zinc-200'} custom-scrollbar`}>
+                                    {clanMembers.map(member => (
+                                        <button 
+                                        key={member.id}
+                                        onClick={() => toggleRecipient(member.id)}
+                                        className={`w-full flex items-center justify-between p-3 rounded-xl mb-1 transition-all ${selectedRecipients.includes(member.id) ? 'bg-red-900/10' : 'hover:bg-white/5'}`}
+                                        >
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center text-xs text-white">{member.name.charAt(0)}</div>
+                                            <span className={`text-xs font-bold uppercase ${theme === 'Dia' ? 'text-zinc-800' : 'text-zinc-300'}`}>{member.name}</span>
+                                        </div>
+                                        {selectedRecipients.includes(member.id) ? <CheckSquare size={16} className="text-red-900" /> : <Square size={16} className="text-zinc-500" />}
+                                        </button>
+                                    ))}
+                                    </div>
+                                </div>
+
+                                <button 
+                                    onClick={handleBroadcastMessage}
+                                    className="w-full mt-4 bg-red-900 text-white font-black py-4 rounded-3xl shadow-xl flex items-center justify-center gap-2 italic uppercase active:scale-95 transition-all"
+                                >
+                                    <Send size={18} /> Disparar Ordem
+                                </button>
+                                </div>
+                            </div>
+                            </div>
+                        )}
             </>
           )}
         </>

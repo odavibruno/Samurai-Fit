@@ -44,6 +44,7 @@ export const useUserProfile = (authUser: User | null) => {
     const baseData: Partial<UserProfile> = {
       id: row.id,
       name: row.full_name || row.name || INITIAL_USER_DATA.name,
+      role: row.role || undefined,
       birthDate: row.birth_date || INITIAL_USER_DATA.birthDate,
       gender: row.gender || INITIAL_USER_DATA.gender,
       email: row.email || INITIAL_USER_DATA.email,
@@ -70,7 +71,9 @@ export const useUserProfile = (authUser: User | null) => {
       studentGroup: row.student_group || undefined,
       questionnaire: (row.questionnaire as unknown as UserProfile['questionnaire']) || undefined,
       isFirstLogin: row.is_first_login ?? true,
-      hasAcceptedTerms: row.has_accepted_terms ?? false
+      hasAcceptedTerms: row.has_accepted_terms ?? false,
+      professorCode: row.professor_code || undefined,
+      linkedProfessorId: row.linked_professor_id || undefined
     };
 
     return ensureDataIntegrity(baseData);
@@ -328,28 +331,53 @@ export const useUserProfile = (authUser: User | null) => {
      return updated;
   };
 
-  const completeOnboarding = async (profileData: OnboardingProfileData) => {
-     const updated = {
-       ...user,
-       weight: profileData.weight,
-       height: profileData.height,
-       goal: profileData.goal,
-       isFirstLogin: false,
-       hasAcceptedTerms: true
-     };
+  const completeOnboarding = async (profileData: OnboardingProfileData | any) => {
+     const isProfessor = user.role === 'professor';
+     
+     const updated = isProfessor 
+       ? {
+           ...user,
+           biography: profileData.biography,
+           professorCode: profileData.professorCode,
+           isFirstLogin: false,
+           hasAcceptedTerms: true
+         }
+       : {
+           ...user,
+           weight: profileData.weight,
+           height: profileData.height,
+           goal: profileData.goal,
+           isFirstLogin: false,
+           hasAcceptedTerms: true
+         };
+         
      setUser(updated);
 
      const targetId = requireProfileId(authUser?.id);
-     const payload = await buildProfileUpsertPayload(updated, targetId);
-     if (!payload) {
-       return updated;
-     }
-     const { error } = await supabase
+     
+     // Update the specific flags in Supabase directly to ensure the loop breaks
+     const { error: directUpdateError } = await supabase
        .from('profiles')
-       .upsert(payload, { onConflict: 'id' });
+       .update(
+           isProfessor 
+           ? { 
+               is_first_login: false, 
+               has_accepted_terms: true,
+               biography: profileData.biography,
+               professor_code: profileData.professorCode
+             }
+           : { 
+               is_first_login: false, 
+               has_accepted_terms: true,
+               weight: profileData.weight,
+               height: profileData.height,
+               goal: profileData.goal
+             }
+       )
+       .eq('id', targetId);
 
-     if (error) {
-       console.error("Error completing onboarding:", error.message);
+     if (directUpdateError) {
+       console.error("Error completing onboarding (direct update):", directUpdateError.message);
      }
 
      return updated;

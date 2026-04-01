@@ -359,10 +359,9 @@ const InstructorSchedule: React.FC<InstructorScheduleProps> = ({ onClose, user, 
   const calendarBg = theme === 'Noite' ? 'bg-zinc-900 border-zinc-700' : 'bg-white border-zinc-200';
 
   return (
-    <div className="fixed inset-0 z-[120] bg-black/95 backdrop-blur-xl p-6 flex items-center justify-center animate-in zoom-in-95">
-      <div className={`${modalBg} w-full max-w-5xl h-[90vh] rounded-[3rem] border border-red-900/30 shadow-2xl flex flex-col overflow-hidden relative`}>
-        
-        {/* Header */}
+    <div className="animate-in zoom-in-95 h-full flex flex-col pt-4">
+        <div className={`${modalBg} w-full h-full rounded-[3rem] shadow-2xl border border-red-900/30 flex flex-col overflow-hidden relative`}>
+            {/* Header */}
         <div className="p-6 border-b border-white/5 flex justify-between items-center bg-gradient-to-r from-red-900/10 to-transparent">
           <div className="flex items-center gap-3">
              <div className="p-3 bg-red-900 text-white rounded-2xl shadow-lg shadow-red-900/20"><CalendarIcon size={24} /></div>
@@ -449,29 +448,29 @@ const InstructorSchedule: React.FC<InstructorScheduleProps> = ({ onClose, user, 
 
         {/* --- TELA DE GESTÃO POR ALUNO (OVERLAY) --- */}
         {isStudentManagerOpen && (
-             <div className="absolute inset-0 z-[50] bg-zinc-950 p-6 flex flex-col animate-in slide-in-from-bottom-10">
-                 <div className="flex justify-between items-center mb-6">
+             <div className="absolute inset-0 z-[50] bg-zinc-950 p-6 flex flex-col animate-in slide-in-from-bottom-10 overflow-y-auto">
+                 <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6 pt-4">
                      <h3 className="text-xl font-black uppercase italic text-white flex items-center gap-2"><UserCog size={24} className="text-red-900"/> Gestão por Aluno</h3>
-                     <button onClick={() => setIsStudentManagerOpen(false)} className="px-4 py-2 bg-zinc-800 rounded-xl text-xs font-bold text-white hover:bg-zinc-700">Voltar</button>
+                     <button onClick={() => setIsStudentManagerOpen(false)} className="px-4 py-2 bg-zinc-800 rounded-xl text-xs font-bold text-white hover:bg-zinc-700 w-full md:w-auto">Voltar</button>
                  </div>
-                 <div className="flex gap-4 mb-6">
-                     <div className="w-1/3">
+                 <div className="flex flex-col md:flex-row gap-4 mb-6">
+                     <div className="w-full md:w-1/3">
                          <label className="text-[10px] font-bold uppercase text-zinc-500">Selecione o Aluno</label>
                          <select value={manageStudentId} onChange={(e) => setManageStudentId(e.target.value)} className={`w-full bg-zinc-900 border border-zinc-700 p-4 rounded-2xl text-sm font-bold text-white`}><option value="">Selecione...</option>{students.map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}</select>
                      </div>
                      {manageStudentId && (
-                         <div className="flex-grow flex items-end gap-2">
-                             <button onClick={handleOpenNewClassModal} className="h-14 px-6 bg-red-900 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2"><Plus size={16}/> Novo Agendamento</button>
-                             <div className="ml-auto bg-red-900/10 border border-red-900/20 px-4 py-2 rounded-2xl text-right">
-                                 <p className="text-[10px] font-bold text-red-900 uppercase">Zona de Perigo</p>
+                         <div className="flex-grow flex flex-col md:flex-row md:items-end gap-2 mt-4 md:mt-0">
+                             <button onClick={handleOpenNewClassModal} className="h-14 px-6 bg-red-900 text-white rounded-2xl text-xs font-black uppercase flex items-center justify-center gap-2 w-full md:w-auto"><Plus size={16}/> Novo Agendamento</button>
+                             <div className="md:ml-auto bg-red-900/10 border border-red-900/20 px-4 py-2 rounded-2xl text-right flex justify-between items-center md:block">
+                                 <p className="text-[10px] font-bold text-red-900 uppercase md:mb-1">Zona de Perigo</p>
                                  <button onClick={handleCancelFutureClasses} className="text-[10px] text-zinc-400 hover:text-white underline">Apagar Tudo (Futuro)</button>
                              </div>
                          </div>
                      )}
                  </div>
-                 <div className="flex-grow flex gap-4 overflow-hidden">
+                 <div className="flex-grow flex flex-col md:flex-row gap-4 overflow-hidden">
                      {/* Lista Aulas Futuras */}
-                     <div className="w-1/2 overflow-y-auto custom-scrollbar bg-black/20 rounded-3xl border border-white/5 p-4">
+                     <div className="w-full md:w-1/2 overflow-y-auto custom-scrollbar bg-black/20 rounded-3xl border border-white/5 p-4 flex-1">
                         {manageStudentId ? (
                              <div className="space-y-2">
                                  <h4 className="text-xs font-black uppercase text-zinc-500 mb-4 sticky top-0 bg-zinc-950/90 p-2">Próximas Aulas</h4>
@@ -482,16 +481,16 @@ const InstructorSchedule: React.FC<InstructorScheduleProps> = ({ onClose, user, 
                                      </div>
                                  ))}
                              </div>
-                         ) : <div className="h-full flex items-center justify-center text-zinc-600 font-bold uppercase">Selecione um aluno</div>}
+                         ) : <div className="h-full flex items-center justify-center text-zinc-600 font-bold uppercase py-10">Selecione um aluno</div>}
                      </div>
                      {/* Manipulação em Massa */}
                      {manageStudentId && (
-                         <div className="w-1/2 bg-black/20 rounded-3xl border border-white/5 p-6">
+                         <div className="w-full md:w-1/2 bg-black/20 rounded-3xl border border-white/5 p-6 overflow-y-auto">
                              <h4 className="text-xs font-black uppercase italic tracking-widest text-zinc-500 mb-6">Manipulação em Massa</h4>
                              <div className="space-y-6">
                                  <div>
                                      <p className="text-[10px] font-bold text-zinc-500 mb-2">1. Dias Alvo</p>
-                                     <div className="flex gap-1">{weekDaysShort.map((day, idx) => (<button key={idx} onClick={() => toggleMassActionDay(idx)} className={`w-8 h-8 rounded-lg text-[10px] font-bold ${massActionDays.includes(idx) ? 'bg-red-900 text-white' : 'bg-zinc-800 text-zinc-500'}`}>{day}</button>))}</div>
+                                     <div className="flex gap-1 flex-wrap">{weekDaysShort.map((day, idx) => (<button key={idx} onClick={() => toggleMassActionDay(idx)} className={`w-8 h-8 rounded-lg text-[10px] font-bold ${massActionDays.includes(idx) ? 'bg-red-900 text-white' : 'bg-zinc-800 text-zinc-500'}`}>{day}</button>))}</div>
                                  </div>
                                  <div className="p-4 bg-zinc-900 rounded-2xl border border-white/5">
                                      <p className="text-[10px] font-bold text-zinc-400 mb-2">Mudar Horário</p>

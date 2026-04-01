@@ -113,6 +113,8 @@ export type StudentGroup = 'Mentoria Presencial' | 'Mentoria Online' | 'Comunida
 
 export type ClassStatus = 'Agendada' | 'Concluída' | 'Cancelada' | 'Falta';
 
+export type UserRole = 'professor' | 'student' | 'admin';
+
 export interface ClassSession {
   id: string;
   studentId: string;
@@ -149,6 +151,11 @@ export interface Student extends UserStats {
   // Controle de Acesso
   isFirstLogin?: boolean;
   hasAcceptedTerms?: boolean;
+  role?: UserRole;
+  
+  // Relacionamento Professor-Aluno
+  professorCode?: string;
+  linkedProfessorId?: string;
 }
 
 export interface UserProfile extends Student {
@@ -195,5 +202,7 @@ export enum NavigationTab {
   TECHNIQUES = 'techniques',
   WORKOUTS = 'workouts',
   AI_COACH = 'ai_coach',
-  HEALTH = 'health'
+  HEALTH = 'health',
+  STUDENTS = 'students',
+  SCHEDULE = 'schedule'
 }

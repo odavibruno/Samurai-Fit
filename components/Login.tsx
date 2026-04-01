@@ -25,32 +25,24 @@ const Login: React.FC<LoginProps> = ({ onLogin, onSignUp, theme, customLogo }) =
     setIsLoading(true);
     setError('');
     try {
-      const success = isSignUp
-        ? await onSignUp(email, password)
-        : await onLogin(email, password);
+      const success = await onLogin(email, password);
       
       if (!success) {
-        setError(
-          isSignUp
-            ? 'Não foi possível criar a conta. Verifique os dados e tente novamente.'
-            : 'Acesso negado. Verifique suas credenciais.'
-        );
+        setError('Acesso negado. Verifique suas credenciais.');
         setIsLoading(false);
         return;
       }
 
       setIsLoading(false);
     } catch (err: any) {
-      console.error(isSignUp ? "Sign up error:" : "Login error:", err);
+      console.error("Login error:", err);
       let msg = 'Erro ao conectar com o Dojo.';
       
       const rawMessage = typeof err?.message === 'string' ? err.message : '';
       const message = rawMessage.toLowerCase();
 
       if (message.includes('invalid login credentials') || message.includes('invalid credentials')) {
-          msg = isSignUp
-            ? 'Não foi possível criar a conta com essas credenciais.'
-            : 'Credenciais inválidas. O portão do Dojo permanece fechado.';
+          msg = 'Credenciais inválidas. O portão do Dojo permanece fechado.';
       } else if (message.includes('user not found')) {
           msg = 'Usuário não encontrado. Você não pertence a este Dojo.';
       } else if (message.includes('already registered') || message.includes('already exists')) {
@@ -150,9 +142,10 @@ const Login: React.FC<LoginProps> = ({ onLogin, onSignUp, theme, customLogo }) =
             type="submit" disabled={isLoading}
             className="w-full bg-red-800 hover:bg-red-900 disabled:bg-zinc-400 text-white font-black py-5 rounded-3xl shadow-xl shadow-red-900/20 transition-all flex items-center justify-center gap-3 uppercase italic tracking-widest active:scale-95"
           >
-            {isLoading ? <Loader2 size={24} className="animate-spin" /> : <>{isSignUp ? 'Criar Conta' : 'Entrar'} <Shield size={20} /></>}
+            {isLoading ? <Loader2 size={24} className="animate-spin" /> : <>Entrar <Shield size={20} /></>}
           </button>
 
+          {/* Fluxo de criação de conta temporariamente desativado
           <button
             type="button"
             onClick={() => {
@@ -163,6 +156,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onSignUp, theme, customLogo }) =
           >
             {isSignUp ? 'Já tem uma conta? Entre aqui' : 'Não tem uma conta? Crie aqui'}
           </button>
+          */}
         </form>
       </div>
     </div>
