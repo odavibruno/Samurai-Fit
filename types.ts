@@ -162,6 +162,12 @@ export interface UserProfile extends Student {
   schedule: ClassSession[]; // Agenda do Mestre
 }
 
+export interface OnboardingProfileData {
+  weight: number;
+  height: number;
+  goal: string;
+}
+
 export interface SoundConfig {
   start: string[]; // 3 URLs para Início
   rest: string[];  // 3 URLs para Descanso

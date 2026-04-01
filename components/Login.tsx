@@ -3,74 +3,74 @@ import React, { useState } from 'react';
 import { Loader2, AlertCircle, Shield } from 'lucide-react';
 
 interface LoginProps {
-  onLogin: (email: string, password: string) => Promise<boolean>; // Agora retorna uma Promise<boolean> para saber se deu certo
+  onLogin: (email: string, password: string) => Promise<boolean>;
+  onSignUp: (email: string, password: string) => Promise<boolean>;
   theme: 'Dia' | 'Noite';
   customLogo?: string;
 }
 
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../services/firebase';
-
-const Login: React.FC<LoginProps> = ({ onLogin, theme, customLogo }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, onSignUp, theme, customLogo }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [showRestoreButton, setShowRestoreButton] = useState(false);
+  const defaultLogoPaths = ['/branding/logo-samurai.jpg', '/branding/logo-samurai.peg.jpeg'];
+  const [logoPathIndex, setLogoPathIndex] = useState(0);
+  const logoSource = customLogo || defaultLogoPaths[logoPathIndex] || '';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
-    setShowRestoreButton(false);
-
-    // Simulação de delay de rede samurai para dar peso à ação
-    setTimeout(async () => {
-      try {
-        const success = await onLogin(email, password);
-        
-        if (!success) {
-           // This might not be reached if onLogin throws, but kept for logic safety
-           setError('Acesso negado. Verifique suas credenciais.');
-           setIsLoading(false);
-        }
-      } catch (err: any) {
-        console.error("Login error:", err);
-        let msg = 'Erro ao conectar com o Dojo.';
-        
-        const code = err.code;
-        if (code === 'auth/invalid-credential') {
-            msg = 'Credenciais inválidas. O portão do Dojo permanece fechado.';
-        } else if (code === 'auth/user-not-found') {
-            msg = 'Usuário não encontrado. Você não pertence a este Dojo.';
-            if (email.toLowerCase().trim() === 'w.samurai.fitness@gmail.com') {
-                setShowRestoreButton(true);
-            }
-        } else if (code === 'auth/wrong-password') {
-            msg = 'Senha incorreta. Concentre-se e tente novamente.';
-        } else if (code === 'auth/too-many-requests') {
-            msg = 'Muitas tentativas. Medite um pouco e tente novamente mais tarde.';
-        } else if (code === 'auth/user-disabled') {
-            msg = 'Este guerreiro foi banido do Dojo.';
-        } else if (code === 'auth/network-request-failed') {
-            msg = 'Falha na conexão espiritual (Internet).';
-        } else if (code === 'auth/invalid-email') {
-            msg = 'O formato do e-mail é inválido.';
-        }
-        
-        // Debug code for unknown errors
-        if (msg === 'Erro ao conectar com o Dojo.') {
-            msg += ` (Código: ${code || 'Desconhecido'})`;
-        }
-        
-        setError(msg);
+    try {
+      const success = isSignUp
+        ? await onSignUp(email, password)
+        : await onLogin(email, password);
+      
+      if (!success) {
+        setError(
+          isSignUp
+            ? 'Não foi possível criar a conta. Verifique os dados e tente novamente.'
+            : 'Acesso negado. Verifique suas credenciais.'
+        );
         setIsLoading(false);
+        return;
       }
-    }, 800);
-  };
 
-  const isMasterEmail = email.toLowerCase().trim() === 'w.samurai.fitness@gmail.com';
+      setIsLoading(false);
+    } catch (err: any) {
+      console.error(isSignUp ? "Sign up error:" : "Login error:", err);
+      let msg = 'Erro ao conectar com o Dojo.';
+      
+      const rawMessage = typeof err?.message === 'string' ? err.message : '';
+      const message = rawMessage.toLowerCase();
+
+      if (message.includes('invalid login credentials') || message.includes('invalid credentials')) {
+          msg = isSignUp
+            ? 'Não foi possível criar a conta com essas credenciais.'
+            : 'Credenciais inválidas. O portão do Dojo permanece fechado.';
+      } else if (message.includes('user not found')) {
+          msg = 'Usuário não encontrado. Você não pertence a este Dojo.';
+      } else if (message.includes('already registered') || message.includes('already exists')) {
+          msg = 'Este e-mail já possui conta. Entre com suas credenciais.';
+      } else if (message.includes('too many requests')) {
+          msg = 'Muitas tentativas. Medite um pouco e tente novamente mais tarde.';
+      } else if (message.includes('network') || message.includes('failed to fetch')) {
+          msg = 'Falha na conexão espiritual (Internet).';
+      } else if (message.includes('invalid email')) {
+          msg = 'O formato do e-mail é inválido.';
+      }
+
+      if (msg === 'Erro ao conectar com o Dojo.') {
+          msg += ` (Detalhe: ${rawMessage || 'Desconhecido'})`;
+      }
+      
+      setError(msg);
+      setIsLoading(false);
+    }
+  };
 
   const bgColor = theme === 'Noite' ? 'bg-zinc-950' : 'bg-zinc-100';
   const inputBg = theme === 'Noite' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200';
@@ -87,11 +87,12 @@ const Login: React.FC<LoginProps> = ({ onLogin, theme, customLogo }) => {
         <div className="text-center mb-12">
           {/* Logo container */}
           <div className="w-44 h-44 mx-auto mb-6 relative group flex items-center justify-center">
-            {customLogo ? (
+            {logoSource ? (
                <img 
-                 src={customLogo} 
+                 src={logoSource}
                  alt="Samurai Fit Logo" 
-                 className="w-full h-full object-contain relative z-10 drop-shadow-[0_10px_30px_rgba(153,27,27,0.3)] rounded-xl"
+                 className="w-full h-full object-contain relative z-10 rounded-xl"
+                 onError={() => setLogoPathIndex((index) => index + 1)}
                />
             ) : (
                /* Quadrado Vermelho (Estilo Selo Oriental) */
@@ -149,46 +150,20 @@ const Login: React.FC<LoginProps> = ({ onLogin, theme, customLogo }) => {
             type="submit" disabled={isLoading}
             className="w-full bg-red-800 hover:bg-red-900 disabled:bg-zinc-400 text-white font-black py-5 rounded-3xl shadow-xl shadow-red-900/20 transition-all flex items-center justify-center gap-3 uppercase italic tracking-widest active:scale-95"
           >
-            {isLoading ? <Loader2 size={24} className="animate-spin" /> : <>Entrar no Dojo <Shield size={20} /></>}
+            {isLoading ? <Loader2 size={24} className="animate-spin" /> : <>{isSignUp ? 'Criar Conta' : 'Entrar'} <Shield size={20} /></>}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setError('');
+            }}
+            className="w-full text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-red-700 transition-colors italic"
+          >
+            {isSignUp ? 'Já tem uma conta? Entre aqui' : 'Não tem uma conta? Crie aqui'}
           </button>
         </form>
-
-        <p className={`mt-12 text-center ${labelColor} text-[10px] font-black uppercase tracking-[0.3em] italic`}>
-          Desenvolvido por Warlley Samurai • MESTRE DO CLÃ
-        </p>
-
-        {/* Botão de Emergência para Restaurar Mestre (Apenas visível se email for do mestre) */}
-        {(isMasterEmail || showRestoreButton) && (
-            <button 
-                type="button"
-                onClick={async () => {
-                    if(!window.confirm("Deseja recriar o acesso do Mestre no Auth?")) return;
-                    setIsLoading(true);
-                    try {
-                        // Tenta criar com a senha digitada ou a padrão
-                        const passToUse = password || 'samuraifitness';
-                        console.log("Tentando criar usuário mestre com senha:", passToUse);
-                        
-                        await createUserWithEmailAndPassword(auth, 'w.samurai.fitness@gmail.com', passToUse);
-                        alert("Acesso Mestre Restaurado! Tente entrar agora.");
-                        setError('');
-                        setShowRestoreButton(false);
-                    } catch (e: any) {
-                        console.error("Erro ao restaurar:", e);
-                        if (e.code === 'auth/email-already-in-use') {
-                            alert("O usuário já existe. O erro de login pode ser senha incorreta. Tente 'samuraifitness' ou sua senha habitual.");
-                        } else {
-                            alert(`Erro ao restaurar: ${e.code} - ${e.message}`);
-                        }
-                    } finally {
-                        setIsLoading(false);
-                    }
-                }}
-                className="mt-6 w-full text-[9px] font-black uppercase tracking-widest text-red-900/40 hover:text-red-900 cursor-pointer text-center transition-colors"
-            >
-                [ Restaurar Acesso Mestre ]
-            </button>
-        )}
       </div>
     </div>
   );

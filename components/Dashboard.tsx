@@ -24,6 +24,51 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdateUser, theme, active
   }, []);
 
   const latestStats = user.statsHistory[user.statsHistory.length - 1] || { weight: 0, bodyFat: 0 };
+  const parseDurationMinutes = (duration: string) => {
+    const numeric = Number(duration.replace(/[^\d]/g, ''));
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+  const trainingDates = useMemo(() => {
+    return [...new Set((user.trainingLogs || []).map(log => log.date).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+  }, [user.trainingLogs]);
+  const completedSessions = user.trainingLogs.length;
+  const sessionsLast7Days = useMemo(() => {
+    const now = new Date();
+    return (user.trainingLogs || []).filter(log => {
+      const logDate = new Date(`${log.date}T00:00:00`);
+      const diffDays = Math.floor((now.getTime() - logDate.getTime()) / 86400000);
+      return diffDays >= 0 && diffDays < 7;
+    }).length;
+  }, [user.trainingLogs]);
+  const averageDuration = useMemo(() => {
+    if (!user.trainingLogs.length) return 0;
+    const totalMinutes = user.trainingLogs.reduce((acc, log) => acc + parseDurationMinutes(log.duration), 0);
+    return Math.round(totalMinutes / user.trainingLogs.length);
+  }, [user.trainingLogs]);
+  const currentStreak = useMemo(() => {
+    if (!trainingDates.length) return 0;
+    const dateSet = new Set(trainingDates);
+    let streak = 0;
+    const cursor = new Date();
+    cursor.setHours(0, 0, 0, 0);
+    while (dateSet.has(cursor.toISOString().split('T')[0])) {
+      streak += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return streak;
+  }, [trainingDates]);
+  const weightScaleMax = useMemo(() => {
+    const values = user.statsHistory.map(stat => stat.weight).filter(value => value > 0);
+    const maxValue = values.length ? Math.max(...values) : latestStats.weight;
+    return Math.max(maxValue, 1);
+  }, [user.statsHistory, latestStats.weight]);
+  const bodyFatScaleMax = useMemo(() => {
+    const values = user.statsHistory.map(stat => stat.bodyFat || 0).filter(value => value > 0);
+    const maxValue = values.length ? Math.max(...values) : (latestStats.bodyFat || 0);
+    return Math.max(maxValue, 1);
+  }, [user.statsHistory, latestStats.bodyFat]);
+  const weightProgress = Math.min(1, Math.max(0, latestStats.weight / weightScaleMax));
+  const bodyFatProgress = Math.min(1, Math.max(0, (latestStats.bodyFat || 0) / bodyFatScaleMax));
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -173,7 +218,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdateUser, theme, active
                     <div className="relative w-28 h-28 flex items-center justify-center">
                         <svg className="w-full h-full transform -rotate-90" viewBox="0 0 96 96">
                             <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="6" fill="transparent" className={`${theme === 'Noite' ? 'text-zinc-800' : 'text-zinc-100'}`} />
-                            <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="6" fill="transparent" strokeDasharray={251.2} strokeDashoffset={251.2 * (1 - (latestStats.weight / 150))} className="text-zinc-400" />
+                            <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="6" fill="transparent" strokeDasharray={251.2} strokeDashoffset={251.2 * (1 - weightProgress)} className="text-zinc-400" />
                         </svg>
                         <div className="absolute inset-0 flex flex-col items-center justify-center">
                             <span className={`text-2xl font-black ${textColor} tracking-tighter`}>{latestStats.weight}</span>
@@ -189,7 +234,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdateUser, theme, active
                         <div className="absolute inset-0 bg-red-900/10 rounded-full blur-xl"></div>
                         <svg className="w-full h-full transform -rotate-90 relative z-10" viewBox="0 0 112 112">
                             <circle cx="56" cy="56" r="46" stroke="currentColor" strokeWidth="6" fill="transparent" className="text-red-900/10" />
-                            <circle cx="56" cy="56" r="46" stroke="currentColor" strokeWidth="6" fill="transparent" strokeDasharray={289} strokeDashoffset={289 * (1 - ((latestStats.bodyFat || 0) / 50))} className="text-red-700 drop-shadow-[0_0_8px_rgba(185,28,28,0.5)]" />
+                            <circle cx="56" cy="56" r="46" stroke="currentColor" strokeWidth="6" fill="transparent" strokeDasharray={289} strokeDashoffset={289 * (1 - bodyFatProgress)} className="text-red-700 drop-shadow-[0_0_8px_rgba(185,28,28,0.5)]" />
                         </svg>
                         <div className="absolute inset-0 flex flex-col items-center justify-center z-20">
                             <span className="text-2xl font-black text-red-700 italic tracking-tighter">{latestStats.bodyFat || 0}%</span>
@@ -200,6 +245,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdateUser, theme, active
                 </div>
             </div>
          </div>
+      </section>
+
+      <section className={`${bubbleBg} p-6 rounded-[2.5rem] shadow-sm`}>
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h3 className={`font-black text-sm uppercase italic tracking-tighter ${textColor}`}>
+              Progresso Real
+            </h3>
+            <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">Dados do Histórico</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div className={`p-4 rounded-2xl border ${theme === 'Noite' ? 'bg-black/20 border-white/5' : 'bg-zinc-50 border-zinc-200'}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Sessões</p>
+            <p className={`text-2xl font-black italic mt-2 ${textColor}`}>{completedSessions}</p>
+            <p className="text-[9px] font-bold text-red-700 mt-1">Concluídas</p>
+          </div>
+          <div className={`p-4 rounded-2xl border ${theme === 'Noite' ? 'bg-black/20 border-white/5' : 'bg-zinc-50 border-zinc-200'}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Frequência</p>
+            <p className={`text-2xl font-black italic mt-2 ${textColor}`}>{sessionsLast7Days}</p>
+            <p className="text-[9px] font-bold text-red-700 mt-1">Últimos 7 dias</p>
+          </div>
+          <div className={`p-4 rounded-2xl border ${theme === 'Noite' ? 'bg-black/20 border-white/5' : 'bg-zinc-50 border-zinc-200'}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Ritmo</p>
+            <p className={`text-2xl font-black italic mt-2 ${textColor}`}>{averageDuration}m</p>
+            <p className="text-[9px] font-bold text-red-700 mt-1">Média por treino</p>
+          </div>
+        </div>
+        <div className={`mt-4 p-4 rounded-2xl border flex items-center justify-between ${theme === 'Noite' ? 'bg-black/20 border-white/5' : 'bg-zinc-50 border-zinc-200'}`}>
+          <div className="flex items-center gap-2">
+            <Flame size={16} className="text-red-700" />
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Sequência Atual</p>
+          </div>
+          <p className="text-sm font-black italic text-red-700">{currentStreak} dias</p>
+        </div>
       </section>
 
       {/* Seção Missões de Honra (Objetivos) */}

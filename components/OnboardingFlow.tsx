@@ -1,39 +1,67 @@
 
 import React, { useState } from 'react';
-import { UserProfile } from '../types';
+import { UserProfile, OnboardingProfileData } from '../types';
 import { PRIVACY_POLICY } from '../constants';
-import { ShieldCheck, CheckCircle2, Lock, ArrowRight } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, ArrowRight, Scale, Ruler, Target } from 'lucide-react';
 
 interface OnboardingFlowProps {
   user: UserProfile;
-  onComplete: (newPassword: string) => void;
+  onAcceptTerms: () => Promise<void>;
+  onComplete: (profileData: OnboardingProfileData) => Promise<void>;
   theme: 'Dia' | 'Noite';
 }
 
-type Step = 'TERMS' | 'PASSWORD';
+type Step = 'TERMS' | 'PROFILE';
 
-const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ user, onComplete, theme }) => {
-  // Se já aceitou termos, pula para senha. Caso contrário, começa nos termos.
-  const [step, setStep] = useState<Step>(user.hasAcceptedTerms ? 'PASSWORD' : 'TERMS');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ user, onAcceptTerms, onComplete, theme }) => {
+  const [step, setStep] = useState<Step>(user.hasAcceptedTerms ? 'PROFILE' : 'TERMS');
+  const [weight, setWeight] = useState(user.weight ? String(user.weight) : '');
+  const [height, setHeight] = useState(user.height ? String(user.height) : '');
+  const [goal, setGoal] = useState(user.goal && user.goal !== 'Definir Objetivo' ? user.goal : '');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleAcceptTerms = () => {
-    setStep('PASSWORD');
+  const handleAcceptTerms = async () => {
+    setError('');
+    setIsSubmitting(true);
+    try {
+      await onAcceptTerms();
+      setStep('PROFILE');
+    } catch {
+      setError('Não foi possível registrar o aceite. Tente novamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handlePasswordSubmit = () => {
+  const handleProfileSubmit = async () => {
     setError('');
-    if (password.length < 6) {
-      setError('A senha deve ter pelo menos 6 caracteres.');
+    const parsedWeight = Number(weight);
+    const parsedHeight = Number(height);
+    if (!parsedWeight || parsedWeight <= 0) {
+      setError('Informe um peso válido.');
       return;
     }
-    if (password !== confirmPassword) {
-      setError('Os códigos não coincidem.');
+    if (!parsedHeight || parsedHeight <= 0) {
+      setError('Informe uma altura válida.');
       return;
     }
-    onComplete(password);
+    if (!goal.trim() || goal === 'Definir Objetivo') {
+      setError('Selecione seu objetivo principal.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await onComplete({
+        weight: parsedWeight,
+        height: parsedHeight,
+        goal: goal.trim()
+      });
+    } catch {
+      setError('Não foi possível concluir o cadastro inicial. Tente novamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const bgColor = theme === 'Noite' ? 'bg-zinc-950' : 'bg-zinc-100';
@@ -63,22 +91,23 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ user, onComplete, theme
 
             <button 
               onClick={handleAcceptTerms}
-              className="w-full bg-red-900 text-white font-black py-5 rounded-3xl shadow-xl uppercase italic tracking-widest flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-red-800"
+              disabled={isSubmitting}
+              className="w-full bg-red-900 text-white font-black py-5 rounded-3xl shadow-xl uppercase italic tracking-widest flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Li e Aceito as Regras <CheckCircle2 size={18} />
+              {isSubmitting ? 'Salvando...' : 'Li e Aceito as Regras'} <CheckCircle2 size={18} />
             </button>
           </div>
         )}
 
-        {step === 'PASSWORD' && (
+        {step === 'PROFILE' && (
           <div className="w-full flex flex-col">
              <div className="mb-6 flex justify-center">
                <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center text-zinc-400">
-                  <Lock size={32} />
+                  <Target size={32} />
                </div>
             </div>
-            <h2 className={`text-2xl font-black uppercase italic ${textColor} mb-2`}>Proteja seu Dojo</h2>
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-8">Defina seu novo código de acesso pessoal</p>
+            <h2 className={`text-2xl font-black uppercase italic ${textColor} mb-2`}>Ajuste Inicial</h2>
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-8">Preencha seus dados estratégicos</p>
 
             <div className="space-y-4 mb-8 w-full text-left">
                 {error && (
@@ -87,33 +116,47 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ user, onComplete, theme
                     </div>
                 )}
                 <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-zinc-500 ml-2">Novo Código</label>
+                    <label className="text-[10px] font-black uppercase text-zinc-500 ml-2 flex items-center gap-1"><Scale size={11} /> Peso (kg)</label>
                     <input 
-                        type="password" 
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        type="number" 
+                        value={weight}
+                        onChange={(e) => setWeight(e.target.value)}
                         className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} focus:outline-none focus:border-red-900 transition-colors`}
-                        placeholder="Mínimo 6 caracteres"
+                        placeholder="Ex: 82"
                     />
                 </div>
                 <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-zinc-500 ml-2">Repita o Código</label>
+                    <label className="text-[10px] font-black uppercase text-zinc-500 ml-2 flex items-center gap-1"><Ruler size={11} /> Altura (cm)</label>
                     <input 
-                        type="password" 
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        type="number" 
+                        value={height}
+                        onChange={(e) => setHeight(e.target.value)}
                         className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} focus:outline-none focus:border-red-900 transition-colors`}
-                        placeholder="Confirme a senha"
+                        placeholder="Ex: 178"
                     />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-zinc-500 ml-2 flex items-center gap-1"><Target size={11} /> Objetivo</label>
+                    <select
+                        value={goal}
+                        onChange={(e) => setGoal(e.target.value)}
+                        className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} focus:outline-none focus:border-red-900 transition-colors`}
+                    >
+                        <option value="">Selecione um objetivo</option>
+                        <option value="Emagrecimento">Emagrecimento</option>
+                        <option value="Hipertrofia">Hipertrofia</option>
+                        <option value="Condicionamento">Condicionamento</option>
+                        <option value="Definição">Definição</option>
+                    </select>
                 </div>
             </div>
 
             <button 
-              onClick={handlePasswordSubmit}
-              disabled={!password || !confirmPassword}
+              onClick={handleProfileSubmit}
+              disabled={isSubmitting}
               className="w-full bg-red-900 text-white font-black py-5 rounded-3xl shadow-xl uppercase italic tracking-widest flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Confirmar e Entrar <ArrowRight size={18} />
+              {isSubmitting ? 'Salvando...' : 'Concluir e Entrar'} <ArrowRight size={18} />
             </button>
           </div>
         )}

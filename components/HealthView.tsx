@@ -1,21 +1,75 @@
 
-import React, { useState } from 'react';
-import { UserProfile } from '../types';
+import React, { useMemo, useState } from 'react';
+import { UserProfile, Exercise } from '../types';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LineChart, Line } from 'recharts';
 import { Activity, RefreshCcw, TrendingUp, Info, Rotate3D } from 'lucide-react';
 
+const MUSCLE_GROUPS: Exercise['category'][] = ['Peito', 'Costas', 'Pernas', 'Braços', 'Ombros', 'Core'];
+
 const HealthView: React.FC<{ user: UserProfile, theme: 'Dia' | 'Noite' }> = ({ user, theme }) => {
   const [isFront, setIsFront] = useState(true);
-
-  // Mock de recuperação baseado no histórico recente
-  const recovery = {
-    Peito: 75,
-    Costas: 40,
-    Pernas: 90,
-    Braços: 60,
-    Ombros: 55,
-    Core: 100
+  const findCategoryByExerciseName = (name: string) => {
+    const normalizedName = name.trim().toLowerCase();
+    for (const workout of user.workouts) {
+      const matchedExercise = workout.exercises.find(exercise => exercise.name.trim().toLowerCase() === normalizedName);
+      if (matchedExercise) {
+        return matchedExercise.category;
+      }
+    }
+    return null;
   };
+  const recovery = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const latestActivityByCategory = MUSCLE_GROUPS.reduce((acc, category) => ({ ...acc, [category]: null as number | null }), {} as Record<Exercise['category'], number | null>);
+    const fatigueByCategory = MUSCLE_GROUPS.reduce((acc, category) => ({ ...acc, [category]: 0 }), {} as Record<Exercise['category'], number>);
+    const workoutMap = new Map(user.workouts.map(workout => [workout.title.trim().toLowerCase(), workout]));
+
+    for (const log of user.trainingLogs) {
+      const logDate = new Date(`${log.date}T00:00:00`);
+      if (Number.isNaN(logDate.getTime())) continue;
+      const dayDiff = Math.max(0, Math.floor((today.getTime() - logDate.getTime()) / 86400000));
+      const categorySets: Partial<Record<Exercise['category'], number>> = {};
+
+      for (const loggedExercise of log.exercises || []) {
+        const category = findCategoryByExerciseName(loggedExercise.name);
+        if (!category) continue;
+        categorySets[category] = (categorySets[category] || 0) + Math.max(1, Number(loggedExercise.sets) || 0);
+      }
+
+      if (Object.keys(categorySets).length === 0) {
+        const workout = workoutMap.get(log.workoutTitle.trim().toLowerCase());
+        if (workout) {
+          for (const exercise of workout.exercises) {
+            categorySets[exercise.category] = (categorySets[exercise.category] || 0) + Math.max(1, exercise.sets || 0);
+          }
+        }
+      }
+
+      for (const category of Object.keys(categorySets) as Exercise['category'][]) {
+        const currentLatest = latestActivityByCategory[category];
+        if (currentLatest === null || dayDiff < currentLatest) {
+          latestActivityByCategory[category] = dayDiff;
+        }
+        const recencyWeight = Math.max(0, 4 - dayDiff);
+        const setLoad = categorySets[category] || 0;
+        fatigueByCategory[category] += setLoad * recencyWeight;
+      }
+    }
+
+    return MUSCLE_GROUPS.reduce((acc, category) => {
+      const lastDay = latestActivityByCategory[category];
+      const baseRecovery = lastDay === null ? 100 : Math.min(100, 20 + (lastDay * 20));
+      const fatiguePenalty = Math.min(45, fatigueByCategory[category] * 1.2);
+      const value = Math.max(5, Math.min(100, Math.round(baseRecovery - fatiguePenalty)));
+      return { ...acc, [category]: value };
+    }, {} as Record<Exercise['category'], number>);
+  }, [user.trainingLogs, user.workouts]);
+  const systemicRecovery = useMemo(() => {
+    const values = Object.values(recovery);
+    if (!values.length) return 0;
+    return Math.round(values.reduce((acc, value) => acc + value, 0) / values.length);
+  }, [recovery]);
 
   const getRecoveryColor = (val: number) => {
     if (val > 80) return '#22c55e'; // Green
@@ -26,7 +80,6 @@ const HealthView: React.FC<{ user: UserProfile, theme: 'Dia' | 'Noite' }> = ({ u
   const bubbleColor = theme === 'Noite' ? 'bg-[#1A1A1A]' : 'bg-white shadow-xl border border-zinc-100';
   const textColor = theme === 'Noite' ? 'text-white' : 'text-zinc-900';
 
-  // Processamento de dados para o gráfico de composição
   const compositionData = user.statsHistory.map(s => ({
     date: s.date.slice(5),
     gordura: s.bodyFat || 0,
@@ -34,9 +87,7 @@ const HealthView: React.FC<{ user: UserProfile, theme: 'Dia' | 'Noite' }> = ({ u
     peso: s.weight
   }));
 
-  // Componente SVG do Corpo 3D Detalhado
   const HumanBody3D = ({ front, gender }: { front: boolean, gender: string }) => {
-      // Cores baseadas na recuperação
       const colors = {
           head: theme === 'Noite' ? '#71717a' : '#d4d4d8', 
           chest: getRecoveryColor(front ? recovery.Peito : recovery.Costas),
@@ -48,7 +99,6 @@ const HealthView: React.FC<{ user: UserProfile, theme: 'Dia' | 'Noite' }> = ({ u
 
       const strokeColor = theme === 'Noite' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)';
 
-      // Filtros SVG para efeito 3D/Neon
       const defs = (
         <defs>
             <linearGradient id="gradBody" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -243,7 +293,7 @@ const HealthView: React.FC<{ user: UserProfile, theme: 'Dia' | 'Noite' }> = ({ u
           <div className="absolute top-0 left-0 w-1 h-full bg-red-900"></div>
           <p className="text-[10px] font-black text-red-900 uppercase tracking-[0.4em] mb-1 italic">Veredito do Sábio</p>
           <p className={`text-sm font-bold uppercase italic ${theme === 'Dia' ? 'text-zinc-900' : 'text-white'}`}>
-            Recuperação Sistêmica: <span className="text-red-700 text-lg">76%</span>
+            Recuperação Sistêmica: <span className="text-red-700 text-lg">{systemicRecovery}%</span>
           </p>
         </div>
       </section>

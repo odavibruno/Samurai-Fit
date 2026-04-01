@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { Student, Workout, Exercise, FinancialRecord, StudentGroup } from '../types';
-import { db } from '../services/firebase';
-import { collection, getDocs } from 'firebase/firestore';
 import { UserPlus, Search, Trash2, Edit3, ShieldCheck, X, Check, Info, Target, ScrollText, Plus, Save, Bot, Loader2, Sparkles, Lightbulb, ChevronLeft, Copy, Dumbbell, MoreHorizontal, User, Layers, CalendarRange, Repeat, DollarSign, BookOpen, AlertCircle, Calendar, CheckCircle2, EyeOff, Users, Wifi, Globe, Clock, Key, Brain } from 'lucide-react';
 import { generateWorkoutPlan, generateWorkoutFromText, findExerciseDetails } from '../services/geminiService';
+import { supabase } from '../services/supabase';
+import { WorkoutsRow } from '../supabase-types';
 
 // Mock exercises for autocomplete
 const MOCK_EXERCISES: Partial<Exercise>[] = [
@@ -51,23 +51,34 @@ const StudentWorkoutManager: React.FC<StudentWorkoutManagerProps> = ({ student, 
   const [masterIdeasScope, setMasterIdeasScope] = useState<'SINGLE' | 'MULTI' | 'MESO' | 'MACRO'>('SINGLE');
   const [isLoadingWorkouts, setIsLoadingWorkouts] = useState(false);
 
-  // Efeito para carregar treinos da subcoleção se necessário
   useEffect(() => {
     const loadWorkouts = async () => {
-        // Se já temos treinos via prop (legado ou cache), usamos eles, 
-        // mas idealmente sempre buscamos a versão mais recente da subcoleção
-        if (!student.email) return;
+        if (!student.id) return;
         
         setIsLoadingWorkouts(true);
         try {
-            const workoutsRef = collection(db, 'users', student.email, 'workouts');
-            const snapshot = await getDocs(workoutsRef);
-            
-            if (!snapshot.empty) {
-                const loadedWorkouts = snapshot.docs.map(d => d.data() as Workout);
+            const { data, error } = await supabase
+              .from('workouts')
+              .select('*')
+              .eq('student_id', student.id)
+              .neq('status', 'active');
+
+            if (error) {
+              throw error;
+            }
+
+            const rows = (data || []) as unknown as WorkoutsRow[];
+            if (rows.length > 0) {
+                const loadedWorkouts: Workout[] = rows.map(row => ({
+                  id: row.workout_id || row.id,
+                  title: row.title || 'Treino',
+                  description: row.description || '',
+                  exercises: Array.isArray(row.exercises) ? row.exercises as unknown as Workout['exercises'] : [],
+                  lastPerformed: row.last_performed || undefined,
+                  isLocked: row.is_locked ?? false
+                }));
                 setWorkouts(loadedWorkouts);
             } else {
-                // Se não tem na subcoleção, verifica se tem no objeto student (migração)
                 if (student.workouts && student.workouts.length > 0) {
                      setWorkouts(student.workouts);
                 } else {
@@ -82,7 +93,7 @@ const StudentWorkoutManager: React.FC<StudentWorkoutManagerProps> = ({ student, 
     };
     
     loadWorkouts();
-  }, [student.email]);
+  }, [student.id, student.workouts]);
 
   // --- FUNÇÕES DA LISTA DE TREINOS ---
   const handleCreateNew = () => {

@@ -1,69 +1,158 @@
 import { useState, useEffect } from 'react';
 import { ActiveWorkoutSession, Workout } from '../types';
-import { db } from '../services/firebase';
-import { doc, setDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
-import { User } from 'firebase/auth';
+import { User } from '@supabase/supabase-js';
+import { supabase } from '../services/supabase';
+import { Json, TrainingLogsRow, WorkoutsInsert, WorkoutsRow } from '../supabase-types';
 
 export const useWorkoutSession = (user: User | null) => {
   const [activeSession, setActiveSession] = useState<ActiveWorkoutSession | null>(null);
   const [loading, setLoading] = useState(false);
+  const [activeWorkoutRowId, setActiveWorkoutRowId] = useState<string | null>(null);
+  const [trainingLogs, setTrainingLogs] = useState<TrainingLogsRow[]>([]);
   
   const isAuthenticated = !!user;
 
-  // Subscribe to active session in Firestore
+  const toJson = (value: unknown): Json => value as unknown as Json;
+  const toSessionData = (value: Json | null): ActiveWorkoutSession['sessionData'] => {
+    if (!value || Array.isArray(value) || typeof value !== 'object') return {};
+    return value as unknown as ActiveWorkoutSession['sessionData'];
+  };
+
+  const mapWorkoutRowToSession = (row: WorkoutsRow): ActiveWorkoutSession => ({
+    workoutId: row.workout_id || row.id,
+    workoutTitle: row.title || '',
+    startTime: row.start_time || new Date().toISOString(),
+    lastResumeTime: row.last_resume_time,
+    accumulatedDuration: row.accumulated_duration ?? 0,
+    isPaused: row.is_paused ?? false,
+    currentExerciseIndex: row.current_exercise_index ?? 0,
+    sessionData: toSessionData(row.session_data)
+  });
+
+  const mapSessionToWorkoutInsert = (session: ActiveWorkoutSession, studentId: string): WorkoutsInsert => ({
+    student_id: studentId,
+    workout_id: session.workoutId,
+    title: session.workoutTitle,
+    start_time: session.startTime,
+    last_resume_time: session.lastResumeTime,
+    accumulated_duration: session.accumulatedDuration,
+    is_paused: session.isPaused,
+    current_exercise_index: session.currentExerciseIndex,
+    session_data: toJson(session.sessionData),
+    status: 'active'
+  });
+
   useEffect(() => {
-    if (!user || !user.email) {
+    if (!user) {
         setActiveSession(null);
+        setActiveWorkoutRowId(null);
+        setTrainingLogs([]);
+        setLoading(false);
         return;
     }
 
-    const email = user.email;
-    
     setLoading(true);
-    // Storing active session in a separate collection: 'active_sessions'
-    // Document ID = user email
-    const docRef = doc(db, 'active_sessions', email);
-    
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setActiveSession(docSnap.data() as ActiveWorkoutSession);
-      } else {
-        setActiveSession(null);
-      }
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching active session:", error);
-      setLoading(false);
-    });
 
-    return () => unsubscribe();
+    const loadWorkoutData = async () => {
+      try {
+        const studentId = user.id;
+
+        const { data: workoutsData, error: workoutsError } = await supabase
+          .from('workouts')
+          .select('*')
+          .eq('student_id', studentId);
+
+        if (workoutsError) {
+          throw workoutsError;
+        }
+
+        const workouts = (workoutsData || []) as unknown as WorkoutsRow[];
+        const activeWorkout = workouts.find(w => w.status === 'active');
+
+        if (activeWorkout) {
+          setActiveWorkoutRowId(String(activeWorkout.id));
+          setActiveSession(mapWorkoutRowToSession(activeWorkout));
+        } else {
+          setActiveWorkoutRowId(null);
+          setActiveSession(null);
+        }
+
+        const { data: logsData, error: logsError } = await supabase
+          .from('training_logs')
+          .select('*')
+          .eq('student_id', studentId);
+
+        if (logsError) {
+          throw logsError;
+        }
+
+        setTrainingLogs((logsData || []) as unknown as TrainingLogsRow[]);
+      } catch (error) {
+        console.error("Error fetching workout session:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadWorkoutData();
   }, [user]);
 
-  // Alerta de treino incompleto
   useEffect(() => {
-    // Adicionamos um check para evitar alerta duplicado se o hook for recriado
     const hasAlerted = sessionStorage.getItem('has_alerted_session');
-    // Check if session exists and is NOT paused (or maybe even if paused?)
-    // The original logic was if activeSession exists.
     if (isAuthenticated && activeSession && !hasAlerted && !loading) {
        setTimeout(() => {
-           // Simple alert for now
-           // alert("⚠️ ATENÇÃO GUERREIRO!\n\nVocê tem uma batalha incompleta.\nComplete seu treino agora para manter a honra.");
-           // Commented out to avoid annoying alerts during dev/testing, but logic is here.
            sessionStorage.setItem('has_alerted_session', 'true');
        }, 500);
     }
   }, [isAuthenticated, activeSession, loading]);
 
   const saveSession = async (session: ActiveWorkoutSession | null) => {
-    const email = user?.email;
-    if (!email) return;
+    if (!user) return;
+    const studentId = user.id;
 
     try {
-        if (session) {
-            await setDoc(doc(db, 'active_sessions', email), session);
+        if (!session) {
+          if (activeWorkoutRowId && activeSession) {
+            const { error: deleteError } = await supabase
+              .from('workouts')
+              .delete()
+              .eq('id', activeWorkoutRowId);
+
+            if (deleteError) {
+              throw deleteError;
+            }
+
+            setActiveWorkoutRowId(null);
+          }
+          return;
+        }
+
+        const payload = mapSessionToWorkoutInsert(session, studentId);
+
+        if (activeWorkoutRowId) {
+          const { error } = await supabase
+            .from('workouts')
+            .update(payload)
+            .eq('id', activeWorkoutRowId);
+
+          if (error) {
+            throw error;
+          }
         } else {
-            await deleteDoc(doc(db, 'active_sessions', email));
+          const { data, error } = await supabase
+            .from('workouts')
+            .insert(payload)
+            .select('id')
+            .single();
+
+          if (error) {
+            throw error;
+          }
+          if (!data) {
+            throw new Error('Failed to create active workout row');
+          }
+
+          setActiveWorkoutRowId(String(data.id));
         }
     } catch (error) {
         console.error("Error saving workout session:", error);
@@ -131,8 +220,7 @@ export const useWorkoutSession = (user: User | null) => {
     };
 
     setActiveSession(updatedSession);
-    saveSession(updatedSession); // This might be too frequent? Maybe debounce?
-    // For now, direct save is safer to avoid data loss.
+    saveSession(updatedSession);
   };
 
   const finishSession = () => {
@@ -143,6 +231,7 @@ export const useWorkoutSession = (user: User | null) => {
 
   return {
     activeSession,
+    trainingLogs,
     startSession,
     pauseSession,
     resumeSession,

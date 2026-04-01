@@ -1,61 +1,116 @@
 import { useState, useEffect } from 'react';
-import { auth } from '../services/firebase';
-import { 
-  signInWithEmailAndPassword, 
-  signOut, 
-  onAuthStateChanged, 
-  User 
-} from 'firebase/auth';
-import { Student, UserProfile } from '../types';
-import { INITIAL_USER_DATA } from '../constants';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { User } from '@supabase/supabase-js';
+import { supabase } from '../services/supabase';
 
 export const useAuth = () => {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+  const resolveSignUpRedirectTo = () => {
+    if (import.meta.env.DEV) {
+      return 'http://localhost:3000/';
+    }
+
+    if (typeof window !== 'undefined' && window.location.origin) {
+      return `${window.location.origin}/`;
+    }
+
+    return 'http://localhost:3000/';
+  };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    let isMounted = true;
+
+    const initializeSession = async () => {
+      const { data, error } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error('Failed to load session', error.message);
+      }
+
+      if (!isMounted) return;
+
+      const currentUser = data.session?.user ?? null;
+      setUser(currentUser);
+      setIsAuthenticated(!!currentUser);
+      setLoading(false);
+    };
+
+    initializeSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
+      const currentUser = session?.user ?? null;
       setUser(currentUser);
       setIsAuthenticated(!!currentUser);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, passwordInput: string) => {
     try {
-      await signInWithEmailAndPassword(auth, email, passwordInput);
-      
-      // Fetch user profile data to return consistent object structure expected by App.tsx
-      // Note: App.tsx will eventually rely mostly on useUserProfile, but for now we return the profile
-      const userRef = doc(db, 'users', email);
-      const docSnap = await getDoc(userRef);
-      
-      let userProfileData: Partial<UserProfile>;
-      
-      if (docSnap.exists()) {
-          userProfileData = docSnap.data() as UserProfile;
-      } else {
-          // Fallback if firestore doc doesn't exist yet (shouldn't happen for valid users)
-          userProfileData = { ...INITIAL_USER_DATA, email };
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password: passwordInput
+      });
+
+      if (error) {
+        throw new Error(error.message);
       }
-      
-      return userProfileData;
+
+      return { email };
     } catch (error) {
-      console.error("Login failed", error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown authentication error';
+      console.error('Login failed', errorMessage);
+      throw error;
+    }
+  };
+
+  const onSignUp = async (email: string, passwordInput: string) => {
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: passwordInput,
+        options: {
+          emailRedirectTo: resolveSignUpRedirectTo()
+        }
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const currentUser = data.session?.user ?? null;
+      if (currentUser) {
+        setUser(currentUser);
+        setIsAuthenticated(true);
+        setLoading(false);
+      }
+
+      return data;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown authentication error';
+      console.error('Sign up failed', errorMessage);
       throw error;
     }
   };
 
   const logout = async () => {
     try {
-      await signOut(auth);
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        throw new Error(error.message);
+      }
     } catch (error) {
-      console.error("Logout failed", error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown authentication error';
+      console.error('Logout failed', errorMessage);
     }
   };
 
@@ -64,6 +119,7 @@ export const useAuth = () => {
     user,
     loading,
     login,
+    onSignUp,
     logout
   };
 };

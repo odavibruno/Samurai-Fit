@@ -12,7 +12,7 @@ import Login from './components/Login';
 import OnboardingFlow from './components/OnboardingFlow';
 import QuestionnaireModal from './components/QuestionnaireModal';
 import CalendarModal from './components/CalendarModal';
-import { NavigationTab, Student, UserProfile, TrainingLog } from './types';
+import { NavigationTab, Student, UserProfile, TrainingLog, OnboardingProfileData } from './types';
 import { INITIAL_USER_DATA } from './constants';
 import { Save, X, Camera, ChevronDown, ChevronUp, Lock, Send, Users, CheckSquare, Square, ShieldAlert, CreditCard, User, AlertCircle, CheckCircle2, Clock, ScrollText, Shield } from 'lucide-react';
 
@@ -22,13 +22,14 @@ import { useAuth } from './hooks/useAuth';
 import { useWorkoutSession } from './hooks/useWorkoutSession';
 import { useUserProfile } from './hooks/useUserProfile';
 import { useClan } from './hooks/useClan';
+import { supabase } from './services/supabase';
 
 const App: React.FC = () => {
   // Hooks
   const { theme, setTheme, audioSettings, setAudioSettings, soundConfig, handleUpdateSoundConfig, sageAvatar, handleUpdateSageAvatar, customIcons, handleUpdateIcon, handleResetIcon } = useSettings();
-  const { isAuthenticated, login, logout, user: authUser } = useAuth();
+  const { isAuthenticated, login, onSignUp, logout, user: authUser } = useAuth();
   const { clanMembers, setClanMembers, createStudent, updateStudent, deleteStudent, updateStudentWorkouts } = useClan();
-  const { user, setUser, nextClassAlert, saveQuestionnaire, completeOnboarding, addTrainingLog, updateTrainingLog, deleteTrainingLog } = useUserProfile(authUser);
+  const { user, setUser, loading: isUserProfileLoading, nextClassAlert, saveQuestionnaire, acceptTerms, completeOnboarding, addTrainingLog, updateTrainingLog, deleteTrainingLog } = useUserProfile(authUser);
   const { activeSession, startSession, pauseSession, resumeSession, updateSessionData, finishSession } = useWorkoutSession(authUser);
 
   // UI State (Local)
@@ -69,6 +70,16 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSignUp = async (email: string, passwordInput: string): Promise<boolean> => {
+    try {
+      await onSignUp(email, passwordInput);
+      return true;
+    } catch (error) {
+      console.error("Sign up failed:", error);
+      throw error;
+    }
+  };
+
   const handleLogout = () => {
     logout();
     setUser(INITIAL_USER_DATA);
@@ -87,10 +98,14 @@ const App: React.FC = () => {
     finishSession();
   };
 
-  const handleOnboardingComplete = (newPassword: string) => {
-      const updatedUser = completeOnboarding(newPassword);
+  const handleOnboardingComplete = async (profileData: OnboardingProfileData) => {
+      const updatedUser = await completeOnboarding(profileData);
       updateStudent(updatedUser);
-      alert("Bem-vindo ao Dojo, Guerreiro! Seu acesso está liberado.");
+  };
+
+  const handleAcceptTerms = async () => {
+      const updatedUser = await acceptTerms();
+      updateStudent(updatedUser);
   };
 
   const handleSaveQuestionnaire = async (answers: { question: string; answer: string }[]) => {
@@ -109,7 +124,7 @@ const App: React.FC = () => {
     
     // Atualiza workouts na subcoleção se existirem no objeto atualizado
     if (updatedStudent.workouts && Array.isArray(updatedStudent.workouts)) {
-        updateStudentWorkouts(updatedStudent.email, updatedStudent.workouts);
+        updateStudentWorkouts(updatedStudent.id, updatedStudent.workouts);
     }
   };
 
@@ -148,18 +163,39 @@ const App: React.FC = () => {
       setIsManagingStudents(false); 
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (isEditingProfile && editingUser) {
-           setEditingUser({ ...editingUser, profileImage: reader.result as string });
-        } else {
-           setUser({ ...user, profileImage: reader.result as string });
+      try {
+        if (!authUser) {
+          return;
         }
-      };
-      reader.readAsDataURL(file);
+
+        const fileExt = file.name.split('.').pop() || 'jpg';
+        const filePath = `${authUser.id}/${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, file, {
+            upsert: true,
+            contentType: file.type || 'image/jpeg'
+          });
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
+        const imageUrl = data.publicUrl;
+
+        if (isEditingProfile && editingUser) {
+           setEditingUser({ ...editingUser, profileImage: imageUrl });
+        } else {
+           setUser({ ...user, profileImage: imageUrl });
+        }
+      } catch (error) {
+        console.error('Erro ao enviar avatar para Supabase Storage:', error);
+        alert('Não foi possível enviar a imagem. Tente novamente.');
+      }
     }
   };
 
@@ -179,7 +215,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
 
@@ -196,8 +232,18 @@ const App: React.FC = () => {
       alert("Código de acesso atualizado com sucesso.");
     }
     
-    setUser(editingUser);
-    updateStudent(editingUser);
+    const profileToSave: UserProfile = {
+      ...editingUser,
+      id: editingUser.id || user.id
+    };
+
+    if (!profileToSave.id || profileToSave.id === 'guest') {
+      alert("Não foi possível identificar o perfil para atualização.");
+      return;
+    }
+
+    setUser(profileToSave);
+    await updateStudent(profileToSave);
     
     setIsEditingProfile(false);
     setEditingUser(null);
@@ -486,8 +532,12 @@ const App: React.FC = () => {
     <div className={`transition-colors duration-500 min-h-screen ${theme === 'Dia' ? 'bg-[#f7f9fc]' : 'bg-[#0A0A0A]'}`}>
       {isAuthenticated ? (
         <>
-          {(user.isFirstLogin || !user.hasAcceptedTerms) ? (
-              <OnboardingFlow user={user} onComplete={handleOnboardingComplete} theme={theme} />
+          {isUserProfileLoading ? (
+            <div className={`fixed inset-0 z-[200] flex items-center justify-center ${theme === 'Noite' ? 'bg-zinc-950' : 'bg-zinc-100'}`}>
+              <div className={`w-16 h-16 rounded-full border-4 border-red-900/30 border-t-red-900 animate-spin`} />
+            </div>
+          ) : (user.isFirstLogin || !user.hasAcceptedTerms) ? (
+              <OnboardingFlow user={user} onAcceptTerms={handleAcceptTerms} onComplete={handleOnboardingComplete} theme={theme} />
           ) : (
             <>
                 {nextClassAlert && (
@@ -672,6 +722,7 @@ const App: React.FC = () => {
       ) : (
         <Login 
           onLogin={handleLogin} 
+          onSignUp={handleSignUp}
           theme={theme} 
           customLogo={customIcons['loginLogo']} 
         />

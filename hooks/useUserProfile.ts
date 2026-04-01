@@ -1,93 +1,289 @@
 import { useState, useEffect } from 'react';
-import { UserProfile, Workout, TrainingLog, Message } from '../types';
+import { UserProfile, Workout, TrainingLog, Exercise, OnboardingProfileData } from '../types';
 import { INITIAL_USER_DATA } from '../constants';
-import { db } from '../services/firebase';
-import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
-import { User } from 'firebase/auth';
+import { User } from '@supabase/supabase-js';
+import { supabase } from '../services/supabase';
+import { Json, ProfilesInsert, ProfilesRow, ProfilesUpdate, TrainingLogsInsert, TrainingLogsRow, TrainingLogsUpdate, WorkoutsInsert, WorkoutsRow } from '../supabase-types';
 
-export const useUserProfile = (firebaseUser: User | null) => {
+export const useUserProfile = (authUser: User | null) => {
   const [user, setUser] = useState<UserProfile>(INITIAL_USER_DATA);
   const [loading, setLoading] = useState(false);
 
-  // Helper function to ensure data integrity
-  const ensureDataIntegrity = (baseData: any): UserProfile => {
-      // ... (mantendo a lógica existente para campos simples)
-    if (!baseData.goals) baseData.goals = INITIAL_USER_DATA.goals;
-    if (!baseData.statsHistory) baseData.statsHistory = INITIAL_USER_DATA.statsHistory;
-    if (!baseData.dailyMeals) baseData.dailyMeals = INITIAL_USER_DATA.dailyMeals;
-    if (!baseData.financial) {
-        baseData.financial = { status: 'Em dia', plan: 'Mensal', dueDate: new Date().toISOString().split('T')[0], lastPayment: new Date().toISOString().split('T')[0], value: 120, history: [] };
+  const toArray = <T,>(value: Json | null | undefined, fallback: T[]): T[] => {
+    if (!Array.isArray(value)) return fallback;
+    return value as T[];
+  };
+  const toJson = (value: unknown): Json => value as unknown as Json;
+  const sanitizeDate = (value?: string | null) => {
+    const normalized = value?.trim();
+    return normalized ? normalized : null;
+  };
+  const sanitizeEmail = (value?: string | null) => {
+    const normalized = value?.trim();
+    return normalized ? normalized : null;
+  };
+  const requireProfileId = (candidateId?: string | null) => {
+    const targetId = candidateId?.trim();
+    if (!targetId || targetId === 'guest') {
+      throw new Error('Profile update requires a valid id.');
     }
-    if (baseData.financial && !baseData.financial.history) {
-        baseData.financial.history = INITIAL_USER_DATA.financial?.history || [];
-    }
-    if (!baseData.schedule) baseData.schedule = [];
-    if (baseData.isFirstLogin === undefined) baseData.isFirstLogin = false;
-    if (baseData.hasAcceptedTerms === undefined) baseData.hasAcceptedTerms = true;
+    return targetId;
+  };
+  const resolvePayloadEmail = async (candidateEmail?: string | null) => {
+    const fromPayload = sanitizeEmail(candidateEmail);
+    if (fromPayload) return fromPayload;
 
-    // Inicializa arrays vazios, pois serão preenchidos pelas subcoleções
-    baseData.workouts = baseData.workouts || [];
-    baseData.trainingLogs = baseData.trainingLogs || [];
-    baseData.messages = baseData.messages || [];
+    const fromAuthHook = sanitizeEmail(authUser?.email);
+    if (fromAuthHook) return fromAuthHook;
 
-    return baseData as UserProfile;
+    const { data: authData } = await supabase.auth.getUser();
+    return sanitizeEmail(authData.user?.email);
   };
 
-  // Load from Firestore with Subcollections
+  const mapProfileRowToUser = (row: ProfilesRow): UserProfile => {
+    const baseData: Partial<UserProfile> = {
+      id: row.id,
+      name: row.full_name || row.name || INITIAL_USER_DATA.name,
+      birthDate: row.birth_date || INITIAL_USER_DATA.birthDate,
+      gender: row.gender || INITIAL_USER_DATA.gender,
+      email: row.email || INITIAL_USER_DATA.email,
+      password: row.password || INITIAL_USER_DATA.password,
+      goal: row.goal || INITIAL_USER_DATA.goal,
+      level: row.level || INITIAL_USER_DATA.level,
+      weight: row.weight ?? INITIAL_USER_DATA.weight,
+      height: row.height ?? INITIAL_USER_DATA.height,
+      waterIntake: row.water_intake ?? INITIAL_USER_DATA.waterIntake,
+      date: row.date || INITIAL_USER_DATA.date,
+      phone: row.phone || INITIAL_USER_DATA.phone,
+      isLider: row.is_lider ?? undefined,
+      workouts: toArray<Workout>(row.workouts, INITIAL_USER_DATA.workouts),
+      statsHistory: toArray(row.stats_history, INITIAL_USER_DATA.statsHistory),
+      dailyMeals: toArray(row.daily_meals, INITIAL_USER_DATA.dailyMeals),
+      goals: toArray(row.goals, INITIAL_USER_DATA.goals),
+      messages: toArray(row.messages, INITIAL_USER_DATA.messages),
+      trainingLogs: toArray<TrainingLog>(row.training_logs, INITIAL_USER_DATA.trainingLogs),
+      schedule: toArray(row.schedule, INITIAL_USER_DATA.schedule),
+      profileImage: row.avatar_url || row.profile_image || undefined,
+      biography: row.biography || undefined,
+      observations: row.observations || undefined,
+      financial: (row.financial as unknown as UserProfile['financial']) || INITIAL_USER_DATA.financial,
+      studentGroup: row.student_group || undefined,
+      questionnaire: (row.questionnaire as unknown as UserProfile['questionnaire']) || undefined,
+      isFirstLogin: row.is_first_login ?? true,
+      hasAcceptedTerms: row.has_accepted_terms ?? false
+    };
+
+    return ensureDataIntegrity(baseData);
+  };
+
+  const normalizeLogExercises = (value: Json | null | undefined): TrainingLog['exercises'] => {
+    if (!Array.isArray(value)) return [];
+
+    return value
+      .map((item) => {
+        if (!item || Array.isArray(item) || typeof item !== 'object') return null;
+        const raw = item as Record<string, unknown>;
+
+        return {
+          name: typeof raw.name === 'string' ? raw.name : 'Exercício',
+          sets: typeof raw.sets === 'number' ? raw.sets : Number(raw.sets) || 0,
+          reps: typeof raw.reps === 'string' ? raw.reps : String(raw.reps || ''),
+          weight: typeof raw.weight === 'number' ? raw.weight : Number(raw.weight) || 0
+        };
+      })
+      .filter((item): item is TrainingLog['exercises'][number] => item !== null);
+  };
+
+  const mapWorkoutRowToWorkout = (row: WorkoutsRow): Workout => ({
+    id: row.workout_id || row.id,
+    title: row.title || 'Treino',
+    description: row.description || '',
+    exercises: toArray<Exercise>(row.exercises, []),
+    lastPerformed: row.last_performed || undefined,
+    isLocked: row.is_locked ?? false
+  });
+
+  const mapTrainingLogRowToTrainingLog = (row: TrainingLogsRow): TrainingLog => ({
+    id: row.id,
+    date: row.date || new Date().toISOString().split('T')[0],
+    workoutTitle: row.workout_title || 'Treino',
+    duration: row.duration || '0 min',
+    totalLoad: row.total_load ?? 0,
+    totalVolume: row.total_volume ?? 0,
+    exercises: normalizeLogExercises(row.exercises)
+  });
+
+  const buildProfileUpdatePayload = async (profile: UserProfile): Promise<ProfilesUpdate | null> => {
+    const email = await resolvePayloadEmail(profile.email);
+    if (!email) {
+      console.error('Profile write aborted: email is missing after mapping.');
+      return null;
+    }
+
+    return {
+      full_name: profile.name,
+      email,
+      phone: profile.phone || null,
+      weight: profile.weight,
+      height: profile.height,
+      goal: profile.goal,
+      goals: toJson(profile.goals ?? []),
+      birth_date: sanitizeDate(profile.birthDate),
+      gender: profile.gender,
+      daily_meals: toJson(profile.dailyMeals ?? []),
+      observations: profile.observations || null,
+      is_lider: profile.isLider ?? false,
+      avatar_url: profile.profileImage || null
+    };
+  };
+
+  const buildProfileUpsertPayload = async (profile: UserProfile, id: string): Promise<ProfilesInsert | null> => {
+    const mappedPayload = await buildProfileUpdatePayload(profile);
+    if (!mappedPayload) {
+      return null;
+    }
+
+    return {
+      id: requireProfileId(id),
+      ...mappedPayload
+    };
+  };
+
+  const ensureDataIntegrity = (baseData: Partial<UserProfile>): UserProfile => {
+    const mergedData = {
+      ...INITIAL_USER_DATA,
+      ...baseData
+    } as UserProfile;
+
+    if (!mergedData.goals) mergedData.goals = INITIAL_USER_DATA.goals;
+    if (!mergedData.statsHistory) mergedData.statsHistory = INITIAL_USER_DATA.statsHistory;
+    if (!mergedData.dailyMeals) mergedData.dailyMeals = INITIAL_USER_DATA.dailyMeals;
+    if (!mergedData.financial) {
+      mergedData.financial = {
+        status: 'Em dia',
+        plan: 'Mensal',
+        dueDate: new Date().toISOString().split('T')[0],
+        lastPayment: new Date().toISOString().split('T')[0],
+        value: 120,
+        history: []
+      };
+    }
+    if (mergedData.financial && !mergedData.financial.history) {
+      mergedData.financial.history = INITIAL_USER_DATA.financial?.history || [];
+    }
+    if (!mergedData.schedule) mergedData.schedule = [];
+    if (mergedData.isFirstLogin === undefined) mergedData.isFirstLogin = true;
+    if (mergedData.hasAcceptedTerms === undefined) mergedData.hasAcceptedTerms = false;
+    if (!mergedData.workouts) mergedData.workouts = [];
+    if (!mergedData.trainingLogs) mergedData.trainingLogs = [];
+    if (!mergedData.messages) mergedData.messages = [];
+
+    return mergedData;
+  };
+
   useEffect(() => {
-    if (!firebaseUser || !firebaseUser.email) {
+    if (!authUser) {
+        setUser(INITIAL_USER_DATA);
         setLoading(false);
         return;
     }
 
-    const email = firebaseUser.email;
+    let isMounted = true;
 
     const loadUser = async () => {
         setLoading(true);
         try {
-            const userRef = doc(db, 'users', email);
-            const docSnap = await getDoc(userRef);
-            
-            if (docSnap.exists()) {
-                const userData = ensureDataIntegrity(docSnap.data());
+            const { data, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', authUser.id)
+              .single();
 
-                // Load Subcollections in parallel
-                const workoutsPromise = getDocs(collection(userRef, 'workouts'));
-                const historyPromise = getDocs(collection(userRef, 'history'));
-                const messagesPromise = getDocs(collection(userRef, 'messages'));
+            if (error) {
+              if (error.code === 'PGRST116') {
+                const initialProfile = ensureDataIntegrity({
+                  ...INITIAL_USER_DATA,
+                  id: authUser.id,
+                  email: authUser.email || '',
+                  isFirstLogin: true,
+                  hasAcceptedTerms: false
+                });
+                const initialProfilePayload = await buildProfileUpsertPayload(initialProfile, authUser.id);
+                if (!initialProfilePayload) {
+                  throw new Error('Profile bootstrap aborted: mapped email is missing.');
+                }
 
-                const [workoutsSnap, historySnap, messagesSnap] = await Promise.all([
-                    workoutsPromise,
-                    historyPromise,
-                    messagesPromise
-                ]);
+                const { error: upsertError } = await supabase
+                  .from('profiles')
+                  .upsert(initialProfilePayload, { onConflict: 'id' });
 
-                // Map subcollections to user object state
-                userData.workouts = workoutsSnap.docs.map(d => d.data() as Workout);
-                userData.trainingLogs = historySnap.docs.map(d => d.data() as TrainingLog);
-                userData.messages = messagesSnap.docs.map(d => d.data() as Message);
-                
-                setUser(userData);
+                if (upsertError) {
+                  throw upsertError;
+                }
+
+                if (isMounted) {
+                  setUser(initialProfile);
+                }
+              } else {
+                throw error;
+              }
             } else {
-                 // Initialize with basic data if document doesn't exist yet
-                 setUser({ ...INITIAL_USER_DATA, email });
+              if (!data) {
+                throw new Error('Profile payload is empty');
+              }
+              const profileData = mapProfileRowToUser(data as unknown as ProfilesRow);
+              const { data: workoutsData, error: workoutsError } = await supabase
+                .from('workouts')
+                .select('*')
+                .eq('student_id', authUser.id);
+
+              if (workoutsError) {
+                throw workoutsError;
+              }
+
+              const { data: trainingLogsData, error: trainingLogsError } = await supabase
+                .from('training_logs')
+                .select('*')
+                .eq('student_id', authUser.id)
+                .order('date', { ascending: false });
+
+              if (trainingLogsError) {
+                throw trainingLogsError;
+              }
+
+              const mappedWorkouts = ((workoutsData || []) as unknown as WorkoutsRow[])
+                .filter(workoutRow => workoutRow.status !== 'active')
+                .map(mapWorkoutRowToWorkout);
+              const mappedTrainingLogs = ((trainingLogsData || []) as unknown as TrainingLogsRow[]).map(mapTrainingLogRowToTrainingLog);
+              const mergedProfile = ensureDataIntegrity({
+                ...profileData,
+                workouts: mappedWorkouts.length > 0 ? mappedWorkouts : profileData.workouts,
+                trainingLogs: mappedTrainingLogs.length > 0 ? mappedTrainingLogs : profileData.trainingLogs
+              });
+
+              if (isMounted) {
+                setUser(mergedProfile);
+              }
             }
-        } catch (error) {
-            console.error("Error loading user profile from Firestore:", error);
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            console.error("Error loading user profile from Supabase:", message);
         } finally {
-            setLoading(false);
+            if (isMounted) {
+              setLoading(false);
+            }
         }
     };
-    loadUser();
-  }, [firebaseUser]);
 
-  // Save Function specialized for Subcollections
-  // We need to override the default "save everything to one doc" behavior
-  // This hook now exposes specialized updaters or handles the split saving logic
+    loadUser();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authUser]);
 
   const saveQuestionnaire = async (answers: { question: string; answer: string }[]) => {
-      const email = firebaseUser?.email;
-      if (!email) return user;
+      const targetId = requireProfileId(authUser?.id);
       
       const questionnaireData = {
           answers,
@@ -97,112 +293,205 @@ export const useUserProfile = (firebaseUser: User | null) => {
       const updatedUser = { ...user, questionnaire: questionnaireData };
       setUser(updatedUser);
       
-      // Save only the profile part to main doc
-      await setDoc(doc(db, 'users', email), { questionnaire: questionnaireData }, { merge: true });
+      const payload = await buildProfileUpsertPayload(updatedUser, targetId);
+      if (!payload) {
+        return updatedUser;
+      }
+      const { error } = await supabase
+        .from('profiles')
+        .upsert(payload, { onConflict: 'id' });
+
+      if (error) {
+        console.error("Error saving questionnaire:", error.message);
+      }
+
       return updatedUser;
   };
 
-  const completeOnboarding = (newPassword: string) => {
-     // ... logic remains similar, but saving password to main doc
-     const email = firebaseUser?.email;
-     if (email) {
-        setDoc(doc(db, 'users', email), { 
-            password: newPassword, 
-            isFirstLogin: false, 
-            hasAcceptedTerms: true 
-        }, { merge: true });
-     }
-     
-     const updated = { ...user, isFirstLogin: false, hasAcceptedTerms: true };
+  const acceptTerms = async () => {
+     const updated = { ...user, hasAcceptedTerms: true };
      setUser(updated);
+
+     const targetId = requireProfileId(authUser?.id);
+     const payload = await buildProfileUpsertPayload(updated, targetId);
+     if (!payload) {
+       return updated;
+     }
+     const { error } = await supabase
+       .from('profiles')
+       .upsert(payload, { onConflict: 'id' });
+
+     if (error) {
+       console.error("Error saving accepted terms:", error.message);
+     }
+
      return updated;
   };
 
-  // Override the main setUser to handle subcollection updates?
-  // Ideally, we should export specific functions to add/update workouts, logs, etc.
-  // But for compatibility with existing code that calls setUser, we might need a sync effect
-  // HOWEVER, syncing a whole array to subcollections is inefficient (writes N docs every change).
-  // Strategy: The app should use specific methods for adding workouts/logs.
-  
-  // For now, let's keep the main 'user' state as the source of truth for UI,
-  // but we need to intercept changes to workouts/logs to save to subcollections.
+  const completeOnboarding = async (profileData: OnboardingProfileData) => {
+     const updated = {
+       ...user,
+       weight: profileData.weight,
+       height: profileData.height,
+       goal: profileData.goal,
+       isFirstLogin: false,
+       hasAcceptedTerms: true
+     };
+     setUser(updated);
 
-  // NOTE: This effect below is risky with subcollections. 
-  // We should DISABLE the automatic full-user save and only save profile fields.
+     const targetId = requireProfileId(authUser?.id);
+     const payload = await buildProfileUpsertPayload(updated, targetId);
+     if (!payload) {
+       return updated;
+     }
+     const { error } = await supabase
+       .from('profiles')
+       .upsert(payload, { onConflict: 'id' });
+
+     if (error) {
+       console.error("Error completing onboarding:", error.message);
+     }
+
+     return updated;
+  };
+
   useEffect(() => {
-    if (!firebaseUser || loading) return;
-    const email = firebaseUser.email;
-    if (!email) return;
-
-    // Save PROFILE fields only
-    const profileData = { ...user };
-    // Remove large arrays from the main document save
-    delete (profileData as any).workouts;
-    delete (profileData as any).trainingLogs;
-    delete (profileData as any).messages;
+    if (!authUser || loading || user.id === 'guest') return;
 
     const saveProfile = async () => {
-        try {
-             await setDoc(doc(db, 'users', email), profileData, { merge: true });
-        } catch (err) {
-            console.error("Error saving profile:", err);
-        }
+      const targetId = requireProfileId(authUser?.id);
+      const payload = await buildProfileUpsertPayload(user, targetId);
+      if (!payload) {
+        return;
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .upsert(payload, { onConflict: 'id' });
+
+      if (error) {
+        console.error("Error saving profile:", error.message);
+      }
     };
 
-    // Debounce this? For now, simple execution.
-    if (user.id !== 'guest') {
-        saveProfile();
-    }
-  }, [user, firebaseUser]); // Be careful with dependency loop
+    saveProfile();
+  }, [user, authUser, loading]);
 
-  // New Methods for Subcollection Management
   const addWorkout = async (workout: Workout) => {
-      const email = firebaseUser?.email;
-      if (!email) return;
-      
-      const updatedWorkouts = [...user.workouts, workout];
-      setUser(prev => ({ ...prev, workouts: updatedWorkouts }));
-      
-      await setDoc(doc(db, 'users', email, 'workouts', workout.id), workout);
+      if (!authUser) return;
+
+      const workoutPayload: WorkoutsInsert = {
+        student_id: authUser.id,
+        workout_id: workout.id,
+        title: workout.title,
+        description: workout.description,
+        exercises: toJson(workout.exercises),
+        last_performed: workout.lastPerformed || null,
+        is_locked: workout.isLocked ?? false,
+        status: 'assigned'
+      };
+
+      const { data, error } = await supabase
+        .from('workouts')
+        .insert(workoutPayload)
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        console.error("Error updating workouts:", error?.message || 'Unknown error');
+        return;
+      }
+
+      const mappedWorkout = mapWorkoutRowToWorkout(data as unknown as WorkoutsRow);
+      setUser(prev => {
+        const withoutDuplicated = prev.workouts.filter(existingWorkout => existingWorkout.id !== mappedWorkout.id);
+        return { ...prev, workouts: [...withoutDuplicated, mappedWorkout] };
+      });
   };
 
   const addTrainingLog = async (log: TrainingLog) => {
-      const email = firebaseUser?.email;
-      if (!email) return;
+      if (!authUser) return;
 
-      const updatedLogs = [log, ...user.trainingLogs];
-      setUser(prev => ({ ...prev, trainingLogs: updatedLogs }));
+      const linkedWorkout = user.workouts.find(workout => workout.title === log.workoutTitle);
+      const logPayload: TrainingLogsInsert = {
+        student_id: authUser.id,
+        workout_id: linkedWorkout?.id || null,
+        workout_title: log.workoutTitle,
+        date: log.date,
+        duration: log.duration,
+        total_load: log.totalLoad,
+        total_volume: log.totalVolume,
+        exercises: toJson(log.exercises)
+      };
 
-      await setDoc(doc(db, 'users', email, 'history', log.id), log);
+      const { data, error } = await supabase
+        .from('training_logs')
+        .insert(logPayload)
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        console.error("Error adding training log:", error?.message || 'Unknown error');
+        return;
+      }
+
+      const mappedLog = mapTrainingLogRowToTrainingLog(data as unknown as TrainingLogsRow);
+      setUser(prev => ({ ...prev, trainingLogs: [mappedLog, ...prev.trainingLogs] }));
   };
 
   const updateTrainingLog = async (log: TrainingLog) => {
-      const email = firebaseUser?.email;
-      if (!email) return;
+      if (!authUser) return;
 
-      const updatedLogs = user.trainingLogs.map(l => l.id === log.id ? log : l);
+      const updatePayload: TrainingLogsUpdate = {
+        workout_title: log.workoutTitle,
+        date: log.date,
+        duration: log.duration,
+        total_load: log.totalLoad,
+        total_volume: log.totalVolume,
+        exercises: toJson(log.exercises)
+      };
+
+      const { data, error } = await supabase
+        .from('training_logs')
+        .update(updatePayload)
+        .eq('id', log.id)
+        .eq('student_id', authUser.id)
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error("Error updating training log:", error.message);
+        return;
+      }
+
+      const updatedLog = data ? mapTrainingLogRowToTrainingLog(data as unknown as TrainingLogsRow) : log;
+      const updatedLogs = user.trainingLogs.map(existingLog => existingLog.id === log.id ? updatedLog : existingLog);
       setUser(prev => ({ ...prev, trainingLogs: updatedLogs }));
-
-      await setDoc(doc(db, 'users', email, 'history', log.id), log, { merge: true });
   };
 
   const deleteTrainingLog = async (logId: string) => {
-      const email = firebaseUser?.email;
-      if (!email) return;
+      if (!authUser) return;
 
-      const updatedLogs = user.trainingLogs.filter(l => l.id !== logId);
+      const { error } = await supabase
+        .from('training_logs')
+        .delete()
+        .eq('id', logId)
+        .eq('student_id', authUser.id);
+
+      if (error) {
+        console.error("Error deleting training log:", error.message);
+        return;
+      }
+
+      const updatedLogs = user.trainingLogs.filter(log => log.id !== logId);
       setUser(prev => ({ ...prev, trainingLogs: updatedLogs }));
-
-      await import('firebase/firestore').then(({ deleteDoc }) => 
-        deleteDoc(doc(db, 'users', email, 'history', logId))
-      );
   };
 
   const [nextClassAlert, setNextClassAlert] = useState<{ studentName: string, time: string } | null>(null);
 
   // Alert Scheduler
   useEffect(() => {
-    if (!firebaseUser || !user.schedule) return;
+    if (!authUser || !user.schedule) return;
 
     const checkNextClass = () => {
         const now = new Date();
@@ -228,17 +517,18 @@ export const useUserProfile = (firebaseUser: User | null) => {
     checkNextClass(); 
 
     return () => clearInterval(interval);
-  }, [user.schedule, firebaseUser]);
+  }, [user.schedule, authUser]);
 
   return { 
       user, 
-      setUser, // Warning: setUser won't automatically save subcollections anymore!
+      setUser,
       loading,
       nextClassAlert,
       saveQuestionnaire,
+      acceptTerms,
       completeOnboarding,
-      addWorkout,    // Expose this
-      addTrainingLog, // Expose this
+      addWorkout,
+      addTrainingLog,
       updateTrainingLog,
       deleteTrainingLog
   };
