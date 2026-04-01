@@ -221,18 +221,33 @@ export const useClan = () => {
           }
         );
 
-        const { error } = await isolatedSupabase.auth.signUp({
+        const { data: authData, error } = await isolatedSupabase.auth.signUp({
           email: newStudent.email,
           password
         });
 
         if (error) {
-          throw new Error(error.message);
+          const isDuplicateEmail = error.message?.includes('user_already_exists') || 
+                                   error.status === 422 || 
+                                   error.code === '23505';
+                                   
+          if (isDuplicateEmail) {
+            throw new Error('Este e-mail já pertence a outro guerreiro no dojo.');
+          }
+          throw new Error('Não foi possível recrutar o aluno. Tente novamente.');
         }
+
+        const authUserId = authData?.user?.id;
+        if (!authUserId) {
+          throw new Error("Não foi possível obter o ID do utilizador recém-criado.");
+        }
+
+        const { data: currentUser } = await supabase.auth.getUser();
+        const professorId = currentUser.user?.id || null;
 
         const studentToSave: Student = {
           ...newStudent,
-          id: (newStudent.id && newStudent.id !== 'guest' ? newStudent.id : crypto.randomUUID()),
+          id: authUserId,
           password
         };
         const profileInsert = await mapStudentToProfileInsert(studentToSave);
@@ -240,18 +255,27 @@ export const useClan = () => {
           throw new Error('Student creation aborted: mapped email is missing.');
         }
 
+        const finalProfileInsert: ProfilesInsert = {
+          ...profileInsert,
+          role: 'student',
+          linked_professor_id: professorId
+        };
+
         const { error: profileError } = await supabase
           .from('profiles')
-          .insert(profileInsert);
+          .upsert(finalProfileInsert, { onConflict: 'id' });
 
         if (profileError) {
-          throw profileError;
+          if (profileError.code === '23505') {
+            throw new Error('Este e-mail já pertence a outro guerreiro no dojo.');
+          }
+          throw new Error('Não foi possível recrutar o aluno. Tente novamente.');
         }
 
         setClanMembers(prev => [...prev, studentToSave]);
 
         return true;
-    } catch (error: unknown) {
+    } catch (error: any) {
         console.error("Error creating student:", error);
         throw error;
     }

@@ -74,7 +74,11 @@ const Layout: React.FC<LayoutProps> = ({
   const [isSoundConfigOpen, setIsSoundConfigOpen] = useState(false);
 
   // ... (Tabs e configurações de cores mantidas) ...
-  const tabs = [
+  const tabs = isLider ? [
+    { id: NavigationTab.STUDENTS, label: 'Alunos', icon: Users },
+    { id: NavigationTab.SCHEDULE, label: 'Agenda', icon: Calendar, highlight: true },
+    { id: NavigationTab.DOJO, label: 'Resumo', icon: Home },
+  ] : [
     { id: NavigationTab.DOJO, label: 'Dojo', icon: Home },
     { id: NavigationTab.TECHNIQUES, label: 'Técnicas', icon: Swords },
     { id: NavigationTab.WORKOUTS, label: 'Guerra', icon: Sword, highlight: true },

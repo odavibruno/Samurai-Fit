@@ -26,6 +26,9 @@ const MOTIVATIONAL_PHRASES = [
   "O verdadeiro guerreiro não desiste quando cansa, mas quando conclui."
 ];
 
+const toFreeExerciseId = () =>
+  `free-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`;
+
 const WorkoutsView: React.FC<WorkoutsViewProps> = ({ 
     workouts, 
     theme, 
@@ -42,6 +45,9 @@ const WorkoutsView: React.FC<WorkoutsViewProps> = ({
   const [activeExerciseIndex, setActiveExerciseIndex] = useState<number | null>(null);
   const [restTimer, setRestTimer] = useState<number>(0); 
   const [isResting, setIsResting] = useState(false);
+  const [showFreeWorkoutBuilder, setShowFreeWorkoutBuilder] = useState(false);
+  const [freeWorkoutExercises, setFreeWorkoutExercises] = useState<Exercise[]>([]);
+  const [freeWorkoutBuilderExercises, setFreeWorkoutBuilderExercises] = useState<Exercise[]>([]);
   
   // Timer de Duração Total da Sessão (Visual)
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -55,6 +61,18 @@ const WorkoutsView: React.FC<WorkoutsViewProps> = ({
   // Referência persistente para o contexto de áudio (Singleton no componente)
   const audioCtxRef = useRef<AudioContext | null>(null);
 
+  const freeExerciseCatalog = useMemo(() => {
+    const catalog = new Map<string, Exercise>();
+    workouts.forEach(workout => {
+      workout.exercises.forEach(ex => {
+        const key = ex.name.trim().toLowerCase();
+        if (!key || catalog.has(key)) return;
+        catalog.set(key, { ...ex, id: toFreeExerciseId() });
+      });
+    });
+    return Array.from(catalog.values());
+  }, [workouts]);
+
   // Recalcular currentWorkout sempre que activeSession mudar
   const currentWorkout = useMemo(() => {
     if (!activeSession) return null;
@@ -65,16 +83,12 @@ const WorkoutsView: React.FC<WorkoutsViewProps> = ({
             id: 'free-mode',
             title: activeSession.workoutTitle,
             description: 'Caminho sem mestre.',
-            exercises: [
-                { id: 'free-1', name: 'Exercício Livre 1', category: 'Core', type: 'Peso Livre', sets: 4, reps: '10', weight: 0, rest: '60s', videoUrl: '' },
-                { id: 'free-2', name: 'Exercício Livre 2', category: 'Core', type: 'Peso Livre', sets: 4, reps: '10', weight: 0, rest: '60s', videoUrl: '' },
-                { id: 'free-3', name: 'Exercício Livre 3', category: 'Core', type: 'Peso Livre', sets: 4, reps: '10', weight: 0, rest: '60s', videoUrl: '' },
-            ],
+            exercises: freeWorkoutExercises,
             isLocked: false
         };
     }
     return w;
-  }, [activeSession, workouts]);
+  }, [activeSession, workouts, freeWorkoutExercises]);
 
   // --- EFEITO DO TIMER DE DURAÇÃO ---
   useEffect(() => {
@@ -284,22 +298,64 @@ const WorkoutsView: React.FC<WorkoutsViewProps> = ({
     setCountdown(3); 
   };
 
+  const addFreeExercise = () => {
+    setFreeWorkoutBuilderExercises(prev => [
+      ...prev,
+      { id: toFreeExerciseId(), name: '', category: 'Core', type: 'Peso Livre', sets: 4, reps: '10', weight: 0, rest: '60s', videoUrl: '' }
+    ]);
+  };
+
+  const removeFreeExercise = (index: number) => {
+    setFreeWorkoutBuilderExercises(prev => {
+      return prev.filter((_, idx) => idx !== index);
+    });
+  };
+
+  const updateFreeExerciseField = (index: number, field: keyof Exercise, value: string | number) => {
+    setFreeWorkoutBuilderExercises(prev =>
+      prev.map((ex, idx) => idx === index ? { ...ex, [field]: value } : ex)
+    );
+  };
+
+  const replaceFreeExerciseByName = (index: number, exerciseName: string) => {
+    if (!exerciseName) {
+      setFreeWorkoutBuilderExercises(prev =>
+        prev.map((ex, idx) => idx === index ? { ...ex, name: '', category: 'Core', type: 'Peso Livre' } : ex)
+      );
+      return;
+    }
+    const selected = freeExerciseCatalog.find(ex => ex.name === exerciseName);
+    if (!selected) {
+      updateFreeExerciseField(index, 'name', exerciseName);
+      return;
+    }
+    setFreeWorkoutBuilderExercises(prev =>
+      prev.map((ex, idx) => idx === index ? { ...selected, id: ex.id } : ex)
+    );
+  };
+
   const startFreeWorkout = () => {
     const ctx = getAudioContext();
     if (ctx && ctx.state === 'suspended') ctx.resume();
+
+    const sanitizedExercises = freeWorkoutBuilderExercises
+      .filter(ex => ex.name.trim().length > 0)
+      .map(ex => ({ ...ex, id: ex.id || toFreeExerciseId() }));
+
+    if (sanitizedExercises.length === 0) {
+      return;
+    }
 
     const freeWorkout: Workout = {
       id: 'free-mode',
       title: 'Treino Ronin (Livre)',
       description: 'Caminho sem mestre. Escolha suas batalhas.',
-      exercises: [
-        { id: 'free-1', name: 'Exercício Livre 1', category: 'Core', type: 'Peso Livre', sets: 4, reps: '10', weight: 0, rest: '60s', videoUrl: '' },
-        { id: 'free-2', name: 'Exercício Livre 2', category: 'Core', type: 'Peso Livre', sets: 4, reps: '10', weight: 0, rest: '60s', videoUrl: '' },
-        { id: 'free-3', name: 'Exercício Livre 3', category: 'Core', type: 'Peso Livre', sets: 4, reps: '10', weight: 0, rest: '60s', videoUrl: '' },
-      ], 
+      exercises: sanitizedExercises,
       isLocked: false
     };
     
+    setFreeWorkoutExercises(sanitizedExercises);
+    setShowFreeWorkoutBuilder(false);
     onStartSession(freeWorkout);
     setCountdown(3);
   };
@@ -641,15 +697,116 @@ const WorkoutsView: React.FC<WorkoutsViewProps> = ({
       </div>
 
       <div className="grid grid-cols-1 gap-4">
+        {showFreeWorkoutBuilder && (
+          <div className="fixed inset-0 z-[160] bg-black/75 backdrop-blur-sm p-4 flex items-end sm:items-center justify-center">
+            <div className={`w-full max-w-2xl rounded-[2rem] border p-5 sm:p-6 max-h-[90vh] overflow-y-auto ${theme === 'Noite' ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className={`text-xl font-black uppercase italic ${textColor}`}>Configurar Treino Livre</h3>
+                  <p className="text-[10px] font-bold uppercase text-zinc-500 mt-1">Escolha os exercícios e inicie quando estiver pronto.</p>
+                </div>
+                <button onClick={() => setShowFreeWorkoutBuilder(false)} className="p-2 rounded-xl bg-zinc-800 text-white hover:bg-zinc-700">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {freeWorkoutBuilderExercises.length === 0 && (
+                  <div className={`rounded-2xl border p-6 text-center ${theme === 'Noite' ? 'border-zinc-800 bg-zinc-900/40' : 'border-zinc-200 bg-zinc-50'}`}>
+                    <p className="text-sm font-black uppercase text-zinc-500">Nenhum exercício selecionado</p>
+                    <p className="text-[10px] font-bold uppercase text-zinc-500 mt-2">Toque em adicionar exercício para montar seu treino livre.</p>
+                  </div>
+                )}
+
+                {freeWorkoutBuilderExercises.map((exercise, idx) => (
+                  <div key={exercise.id} className={`rounded-2xl border p-3 ${theme === 'Noite' ? 'border-zinc-800 bg-zinc-900/60' : 'border-zinc-200 bg-zinc-50'}`}>
+                    <div className="grid grid-cols-12 gap-2">
+                      <div className="col-span-12 sm:col-span-6">
+                        <label className="text-[9px] font-black uppercase text-zinc-500 ml-1">Exercício / Aparelho</label>
+                        <select
+                          value={exercise.name || ''}
+                          onChange={(e) => replaceFreeExerciseByName(idx, e.target.value)}
+                          className={`w-full p-2 rounded-xl text-xs font-bold ${activeInputBg} focus:outline-none focus:ring-2 focus:ring-red-900`}
+                        >
+                          <option value="">Selecionar...</option>
+                          {freeExerciseCatalog.map(option => (
+                            <option key={option.name} value={option.name}>{option.name}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          value={exercise.name}
+                          onChange={(e) => updateFreeExerciseField(idx, 'name', e.target.value)}
+                          placeholder="Ou digite o exercício"
+                          className={`w-full mt-2 p-2 rounded-xl text-xs font-bold ${activeInputBg} focus:outline-none focus:ring-2 focus:ring-red-900`}
+                        />
+                      </div>
+                      <div className="col-span-4 sm:col-span-2">
+                        <label className="text-[9px] font-black uppercase text-zinc-500 ml-1">Séries</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={exercise.sets}
+                          onChange={(e) => updateFreeExerciseField(idx, 'sets', Math.max(1, Number(e.target.value) || 1))}
+                          className={`w-full p-2 rounded-xl text-xs font-bold ${activeInputBg} focus:outline-none focus:ring-2 focus:ring-red-900`}
+                        />
+                      </div>
+                      <div className="col-span-4 sm:col-span-2">
+                        <label className="text-[9px] font-black uppercase text-zinc-500 ml-1">Reps</label>
+                        <input
+                          type="text"
+                          value={exercise.reps}
+                          onChange={(e) => updateFreeExerciseField(idx, 'reps', e.target.value)}
+                          className={`w-full p-2 rounded-xl text-xs font-bold ${activeInputBg} focus:outline-none focus:ring-2 focus:ring-red-900`}
+                        />
+                      </div>
+                      <div className="col-span-4 sm:col-span-2">
+                        <label className="text-[9px] font-black uppercase text-zinc-500 ml-1">Descanso</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={Number(exercise.rest.replace(/\D/g, '')) || 60}
+                          onChange={(e) => updateFreeExerciseField(idx, 'rest', `${Math.max(0, Number(e.target.value) || 0)}s`)}
+                          className={`w-full p-2 rounded-xl text-xs font-bold ${activeInputBg} focus:outline-none focus:ring-2 focus:ring-red-900`}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex justify-between items-center">
+                      <p className="text-[10px] font-bold uppercase text-zinc-500">{exercise.category} • {exercise.type}</p>
+                      <button
+                        onClick={() => removeFreeExercise(idx)}
+                        className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase bg-red-900 text-white hover:bg-red-800"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 flex gap-2">
+                <button onClick={addFreeExercise} className="flex-1 py-3 rounded-2xl bg-zinc-800 text-white font-black uppercase text-xs tracking-widest hover:bg-zinc-700">
+                  + Adicionar Exercício
+                </button>
+                <button onClick={startFreeWorkout} disabled={freeWorkoutBuilderExercises.filter(ex => ex.name.trim().length > 0).length === 0} className={`flex-1 py-3 rounded-2xl font-black uppercase text-xs tracking-widest ${freeWorkoutBuilderExercises.filter(ex => ex.name.trim().length > 0).length === 0 ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed' : 'bg-red-900 text-white hover:bg-red-800'}`}>
+                  Iniciar Treino Livre
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Card Treino Livre (Ronin) */}
         <button
-          onClick={startFreeWorkout}
+          onClick={() => { setFreeWorkoutBuilderExercises([]); setShowFreeWorkoutBuilder(true); }}
           className={`w-full text-left p-6 rounded-[2.5rem] relative overflow-hidden group hover:scale-[1.01] transition-all shadow-xl border-2 border-dashed ${theme === 'Noite' ? 'border-zinc-700 bg-zinc-900/50' : 'border-zinc-300 bg-zinc-50'}`}
         >
            <div className="flex justify-between items-center relative z-10">
               <div>
                  <h3 className={`text-xl font-black uppercase italic ${theme === 'Noite' ? 'text-zinc-400' : 'text-zinc-600'}`}>Treino Ronin (Livre)</h3>
                  <p className="text-[10px] font-bold uppercase text-zinc-500 mt-1">Sem mestre. Apenas instinto.</p>
+                 <p className="text-[10px] font-bold uppercase text-red-800 mt-2">Monte do zero ao tocar aqui</p>
               </div>
               <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-500">
                  <Ghost size={24} />

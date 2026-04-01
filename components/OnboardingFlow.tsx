@@ -2,12 +2,12 @@
 import React, { useState } from 'react';
 import { UserProfile, OnboardingProfileData } from '../types';
 import { PRIVACY_POLICY } from '../constants';
-import { ShieldCheck, CheckCircle2, ArrowRight, Scale, Ruler, Target } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, ArrowRight, Scale, Ruler, Target, ScrollText, Hash } from 'lucide-react';
 
 interface OnboardingFlowProps {
   user: UserProfile;
   onAcceptTerms: () => Promise<void>;
-  onComplete: (profileData: OnboardingProfileData) => Promise<void>;
+  onComplete: (profileData: OnboardingProfileData | any) => Promise<void>;
   theme: 'Dia' | 'Noite';
 }
 
@@ -18,8 +18,15 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ user, onAcceptTerms, on
   const [weight, setWeight] = useState(user.weight ? String(user.weight) : '');
   const [height, setHeight] = useState(user.height ? String(user.height) : '');
   const [goal, setGoal] = useState(user.goal && user.goal !== 'Definir Objetivo' ? user.goal : '');
+  
+  // Professor specific state
+  const [biography, setBiography] = useState(user.biography || '');
+  const [professorCode, setProfessorCode] = useState(user.professorCode || '');
+  
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const isProfessor = user.role === 'professor';
 
   const handleAcceptTerms = async () => {
     setError('');
@@ -36,6 +43,34 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ user, onAcceptTerms, on
 
   const handleProfileSubmit = async () => {
     setError('');
+    
+    if (isProfessor) {
+      if (!biography.trim()) {
+        setError('Por favor, escreva uma breve biografia ou especialidade.');
+        return;
+      }
+      if (!professorCode.trim()) {
+        setError('O Código do Mestre é obrigatório para que os alunos possam se vincular a você.');
+        return;
+      }
+      
+      setIsSubmitting(true);
+      try {
+        await onComplete({
+          biography: biography.trim(),
+          professorCode: professorCode.trim(),
+          weight: user.weight || 0, // Valores default apenas para cumprir a tipagem, caso precise
+          height: user.height || 0,
+          goal: 'Mestre'
+        });
+      } catch {
+        setError('Não foi possível concluir a configuração. Tente novamente.');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     const parsedWeight = Number(weight);
     const parsedHeight = Number(height);
     if (!parsedWeight || parsedWeight <= 0) {
@@ -106,8 +141,12 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ user, onAcceptTerms, on
                   <Target size={32} />
                </div>
             </div>
-            <h2 className={`text-2xl font-black uppercase italic ${textColor} mb-2`}>Ajuste Inicial</h2>
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-8">Preencha seus dados estratégicos</p>
+            <h2 className={`text-2xl font-black uppercase italic ${textColor} mb-2`}>
+                {isProfessor ? 'Configuração do Mestre' : 'Ajuste Inicial'}
+            </h2>
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-8">
+                {isProfessor ? 'Preencha seus dados como instrutor' : 'Preencha seus dados estratégicos'}
+            </p>
 
             <div className="space-y-4 mb-8 w-full text-left">
                 {error && (
@@ -115,40 +154,71 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ user, onAcceptTerms, on
                         {error}
                     </div>
                 )}
-                <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-zinc-500 ml-2 flex items-center gap-1"><Scale size={11} /> Peso (kg)</label>
-                    <input 
-                        type="number" 
-                        value={weight}
-                        onChange={(e) => setWeight(e.target.value)}
-                        className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} focus:outline-none focus:border-red-900 transition-colors`}
-                        placeholder="Ex: 82"
-                    />
-                </div>
-                <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-zinc-500 ml-2 flex items-center gap-1"><Ruler size={11} /> Altura (cm)</label>
-                    <input 
-                        type="number" 
-                        value={height}
-                        onChange={(e) => setHeight(e.target.value)}
-                        className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} focus:outline-none focus:border-red-900 transition-colors`}
-                        placeholder="Ex: 178"
-                    />
-                </div>
-                <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-zinc-500 ml-2 flex items-center gap-1"><Target size={11} /> Objetivo</label>
-                    <select
-                        value={goal}
-                        onChange={(e) => setGoal(e.target.value)}
-                        className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} focus:outline-none focus:border-red-900 transition-colors`}
-                    >
-                        <option value="">Selecione um objetivo</option>
-                        <option value="Emagrecimento">Emagrecimento</option>
-                        <option value="Hipertrofia">Hipertrofia</option>
-                        <option value="Condicionamento">Condicionamento</option>
-                        <option value="Definição">Definição</option>
-                    </select>
-                </div>
+
+                {isProfessor ? (
+                    <>
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase text-zinc-500 ml-2 flex items-center gap-1">
+                                <ScrollText size={11} /> Especialidade / Biografia
+                            </label>
+                            <textarea 
+                                value={biography}
+                                onChange={(e) => setBiography(e.target.value)}
+                                className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} focus:outline-none focus:border-red-900 transition-colors resize-none h-32`}
+                                placeholder="Ex: Especialista em hipertrofia e emagrecimento..."
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase text-zinc-500 ml-2 flex items-center gap-1">
+                                <Hash size={11} /> Código do Mestre
+                            </label>
+                            <input 
+                                type="text" 
+                                value={professorCode}
+                                onChange={(e) => setProfessorCode(e.target.value)}
+                                className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} focus:outline-none focus:border-red-900 transition-colors uppercase`}
+                                placeholder="Ex: SENSEI-123 (Seus alunos usarão este código)"
+                            />
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase text-zinc-500 ml-2 flex items-center gap-1"><Scale size={11} /> Peso (kg)</label>
+                            <input 
+                                type="number" 
+                                value={weight}
+                                onChange={(e) => setWeight(e.target.value)}
+                                className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} focus:outline-none focus:border-red-900 transition-colors`}
+                                placeholder="Ex: 82"
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase text-zinc-500 ml-2 flex items-center gap-1"><Ruler size={11} /> Altura (cm)</label>
+                            <input 
+                                type="number" 
+                                value={height}
+                                onChange={(e) => setHeight(e.target.value)}
+                                className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} focus:outline-none focus:border-red-900 transition-colors`}
+                                placeholder="Ex: 178"
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase text-zinc-500 ml-2 flex items-center gap-1"><Target size={11} /> Objetivo</label>
+                            <select
+                                value={goal}
+                                onChange={(e) => setGoal(e.target.value)}
+                                className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor} focus:outline-none focus:border-red-900 transition-colors`}
+                            >
+                                <option value="">Selecione um objetivo</option>
+                                <option value="Emagrecimento">Emagrecimento</option>
+                                <option value="Hipertrofia">Hipertrofia</option>
+                                <option value="Condicionamento">Condicionamento</option>
+                                <option value="Definição">Definição</option>
+                            </select>
+                        </div>
+                    </>
+                )}
             </div>
 
             <button 

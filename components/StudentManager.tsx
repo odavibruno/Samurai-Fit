@@ -445,7 +445,7 @@ const StudentWorkoutManager: React.FC<StudentWorkoutManagerProps> = ({ student, 
 interface StudentDetailModalProps {
     student: Student;
     onClose: () => void;
-    onUpdate: (updatedStudent: Student) => void;
+    onUpdate: (updatedStudent: Student) => Promise<void> | void;
     onOpenWorkouts: () => void;
     theme: 'Dia' | 'Noite';
 }
@@ -454,6 +454,8 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({ student, onClos
     const [activeTab, setActiveTab] = useState<'PROFILE' | 'BIO' | 'FINANCIAL'>('PROFILE');
     const [formData, setFormData] = useState<Student>(student);
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
 
     // Garante que o objeto financial exista
     if (!formData.financial) {
@@ -464,6 +466,9 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({ student, onClos
     }
 
     const handleChange = (field: keyof Student, value: any) => {
+        if (field === 'email' && errorMessage) {
+            setErrorMessage('');
+        }
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
@@ -474,7 +479,9 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({ student, onClos
         }));
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
+        setErrorMessage('');
+        setIsSaving(true);
         const finalData = { ...formData };
         
         // Geração Automática de Senha para Novos Alunos (Se ainda não foi definida ou se é primeiro acesso)
@@ -496,8 +503,14 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({ student, onClos
             }
         }
 
-        onUpdate(finalData);
-        onClose();
+        try {
+            await onUpdate(finalData);
+            onClose();
+        } catch (e: any) {
+            setErrorMessage(e.message || "Erro desconhecido ao salvar aluno.");
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const formatBRPhone = (value: string) => {
@@ -574,6 +587,7 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({ student, onClos
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-black uppercase text-zinc-500 ml-1">Email</label>
                                     <input className={`w-full ${inputBg} p-4 rounded-2xl text-sm font-bold ${textColor}`} value={formData.email} onChange={e => handleChange('email', e.target.value)} />
+                                    {errorMessage && <p className="text-red-500 text-xs font-bold mt-1 px-2">{errorMessage}</p>}
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-black uppercase text-zinc-500 ml-1">Telefone</label>
@@ -709,8 +723,8 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({ student, onClos
                 </div>
 
                 <div className="p-6 border-t border-white/5 bg-black/10 flex gap-4">
-                     <button onClick={handleSave} className="flex-grow bg-red-900 text-white font-black py-4 rounded-3xl shadow-xl uppercase italic tracking-widest flex items-center justify-center gap-2 active:scale-95 transition-all">
-                        <Check size={20} /> Salvar Alterações
+                     <button onClick={handleSave} disabled={isSaving} className={`flex-grow bg-red-900 text-white font-black py-4 rounded-3xl shadow-xl uppercase italic tracking-widest flex items-center justify-center gap-2 transition-all ${isSaving ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}>
+                        {isSaving ? <span className="animate-pulse">Salvando...</span> : <><Check size={20} /> Salvar Alterações</>}
                      </button>
                 </div>
 
@@ -790,8 +804,8 @@ const StudentManager: React.FC<StudentManagerProps> = ({ onClose, students, onUp
   const textColor = theme === 'Noite' ? 'text-white' : 'text-zinc-900';
 
   return (
-    <div className="fixed inset-0 z-[110] bg-black/90 backdrop-blur-md p-6 flex items-center justify-center animate-in zoom-in-95">
-       <div className={`${modalBg} w-full max-w-5xl h-[85vh] rounded-[3rem] shadow-2xl border border-red-900/30 flex flex-col overflow-hidden`}>
+    <div className="animate-in zoom-in-95 h-full flex flex-col pt-4">
+       <div className={`${modalBg} w-full h-full rounded-[3rem] shadow-2xl border border-red-900/30 flex flex-col overflow-hidden`}>
           {/* ... Header e Tabs mantidos ... */}
           <div className="p-6 border-b border-white/5 flex justify-between items-center bg-gradient-to-r from-red-900/20 to-transparent">
              <div className="flex items-center gap-3">
@@ -890,8 +904,8 @@ const StudentManager: React.FC<StudentManagerProps> = ({ onClose, students, onUp
                      try {
                         await onCreateStudent(data);
                         alert("Aluno criado com sucesso!");
-                     } catch (e) {
-                        alert("Erro ao criar aluno. Verifique se o e-mail já existe.");
+                     } catch (e: any) {
+                        throw new Error(e.message || "Erro ao criar aluno.");
                      }
                  }
              }}

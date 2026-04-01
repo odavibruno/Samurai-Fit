@@ -1,4 +1,4 @@
-import { ClassSession, FinancialRecord, Goal, Meal, Message, QuestionnaireData, StudentGroup, TrainingLog, UserStats, Workout } from './types';
+import { ClassSession, FinancialRecord, Goal, Meal, Message, QuestionnaireData, StudentGroup, TrainingLog, UserRole, UserStats, Workout } from './types';
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
@@ -39,7 +39,7 @@ type GenericFunction = {
 export interface ProfilesRow {
   id: string;
   full_name?: string | null;
-  role: string | null;
+  role: UserRole | null;
   name: string | null;
   email: string | null;
   password: string | null;
@@ -71,6 +71,8 @@ export interface ProfilesRow {
   has_accepted_terms: boolean | null;
   created_at: string | null;
   updated_at: string | null;
+  professor_code: string | null;
+  linked_professor_id: string | null;
 }
 
 export type ProfilesInsert = Partial<ProfilesRow> & { id: string };
